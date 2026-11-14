@@ -32,7 +32,8 @@ const TUNE = {
   nightsToStarve: 3,         // a vampire that goes this many nights without being invited in starves
   hqRespawnDays: 2,          // with no hunters left, the house of worship raises one after this many dawns
   npcKnockSeconds: 4,
-  playerInviteChance: 0.5,   // the player's knock is a coin toss
+  firstKnockInviteChance: 2 / 3, // the player's first knock of each night: 2 to 1 in favour
+  playerInviteChance: 0.5,   // every later knock that night is a coin toss
   talkBeatSeconds: 1.1,      // pause between lines of the doorstep conversation
   npcInviteChance: 0.5,
   npcCryptChance: 0.2,       // chance an NPC vampire spends the day in the crypt instead of at home
@@ -40,7 +41,7 @@ const TUNE = {
   inspectSeconds: 3.5,       // a hunter's pause at the door of a house that turns out not to be cursed
   purgeSeconds: 3,
   hunterWakeDelay: 3,
-  recruitBeatsVampire: 0.4,  // converted hunter against a converted vampire: the vampire has a slight edge
+  recruitBeatsVampire: 1 / 3, // converted hunter against a converted vampire: 2 to 1 for the vampire
   mainHunterBeatsPlayer: 1,  // only the main hunter can kill the player, and he always does
   fastForward: 8,
   returnFastForward: 3,      // gentler speed-up while hunters or vampires are still walking home
@@ -144,7 +145,7 @@ function reset() {
   actors = []; talk = null; logs = []; flashMsg = null; rally = null; deathNotice = null;
   clock = 0; nightNum = 1;
   stats = { invited: 0, slammed: 0, deaths: 0 };
-  player = { x: crypt.door.x, y: crypt.door.y, state: 'walk', house: null, feed: 0, sun: 0, hunger: 0, fed: false };
+  player = { x: crypt.door.x, y: crypt.door.y, state: 'walk', house: null, feed: 0, sun: 0, hunger: 0, fed: false, knocksTonight: 0 };
   church().state = 'hunter';
   spawnHunter();
   log('Night 1. You leave the crypt.');
@@ -474,6 +475,7 @@ function onDusk() {
   log(`Night ${nightNum} falls.`);
   if (player.state === 'inside') { player.state = 'walk'; player.house = null; player.feed = 0; }
   deathNotice = null;
+  player.knocksTonight = 0;
   for (const h of houses) {
     h.wary = false;
     if (h.state !== 'cursed') continue;
@@ -535,7 +537,8 @@ const INVITATIONS = ['"Come in, then. Come in."', '"You had better come in out o
 
 function startTalk(h) {
   const call = CALLS[rand(CALLS.length)];
-  const won = Math.random() < TUNE.playerInviteChance;
+  const won = Math.random() < (player.knocksTonight === 0 ? TUNE.firstKnockInviteChance : TUNE.playerInviteChance);
+  player.knocksTonight++;
   talk = {
     house: h, t: 0, won, feeding: false,
     q: call[0], a: call[1][rand(call[1].length)],
@@ -828,11 +831,32 @@ function drawLight(s, color) {
 function drawHouse(h) {
   const c = houseColors(h);
   drawBuilding(h.x, h.y, c.roof, c.wall, buildingLook(h).shut, true);
-  if (h.state === 'hunter') {
-    ctx.fillStyle = '#fff';
+}
+
+// The cross on the house of worship is the town's health gauge: it blazes white while every household is
+// clean, dims step by step to dull grey as houses are cursed, and turns bright red for the final swarm.
+// Painted after the night tint, like the lights.
+function drawCross(h) {
+  const homes = houses.filter((x) => !x.isHQ);
+  const health = homes.filter((x) => x.state !== 'cursed').length / homes.length;
+  ctx.save();
+  ctx.fillStyle = mix('#474b52', '#ffffff', health);
+  ctx.shadowColor = '#fff7cf'; ctx.shadowBlur = 26 * health * health;
+  // The final encounter: with every house taken, the cross burns bright red.
+  if (rally) { ctx.fillStyle = '#ff1f2e'; ctx.shadowColor = '#ff1f2e'; ctx.shadowBlur = 28; }
+  for (let pass = 0; pass < (rally || health > 0.6 ? 2 : 1); pass++) {   // a second pass doubles the halo
     ctx.fillRect(h.x + HOUSE_W / 2 - 2, h.y - 6, 4, 26);
     ctx.fillRect(h.x + HOUSE_W / 2 - 9, h.y + 2, 18, 4);
   }
+  // A hairline outline, drawn over the glow, keeps the edge of the cross sharp at every brightness.
+  const cx = h.x + HOUSE_W / 2, y = h.y;
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = '#0d1524'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  const outline = [[-2.5, -6.5], [2.5, -6.5], [2.5, 1.5], [9.5, 1.5], [9.5, 6.5], [2.5, 6.5], [2.5, 20.5], [-2.5, 20.5], [-2.5, 6.5], [-9.5, 6.5], [-9.5, 1.5], [-2.5, 1.5]];
+  outline.forEach(([ox, oy], i) => (i ? ctx.lineTo(cx + ox, y + oy) : ctx.moveTo(cx + ox, y + oy)));
+  ctx.closePath(); ctx.stroke();
+  ctx.restore();
 }
 
 function drawActor(x, y, body, trim, label, r = 9) {
@@ -886,6 +910,7 @@ function drawWorld() {
 
   text('GRAVEYARD', GRAVE_COLS * T / 2, 20, '#aab5b0', '12px monospace', 'center');
   for (const s of [crypt, ...houses]) { const light = buildingLook(s).light; if (light) drawLight(s, light); }
+  if (rally || church().state === 'hunter') drawCross(church());
 
   if (player.sun > 0) bar(player.x - 16, player.y - 34, 32, player.sun / TUNE.sunGraceSeconds, '#ffb020');
   if (player.state === 'walk') {
@@ -996,14 +1021,14 @@ function draw() {
       ['VAMPIRE SIMULATOR', '#ff3b4e', 'bold 44px monospace', 30],
       ['lo-fi playtest build', '#888', '14px monospace', 56],
       ['WASD to move.  Walk up to a door and press W or E.', '#fff'],
-      ['The doorstep talk plays out by itself. Half the time you are invited in, and you feed.', '#fff'],
+      ['The doorstep talk plays out by itself. Your first knock each night is 2 to 1 to get you in, the rest are even.', '#fff'],
       ['A house you enter is cursed. After three nights it raises a vampire of its own.', null],
       ['Sunlight kills. By day, shelter in the crypt or inside a cursed house.', null],
       ['Each morning every hunter visits one random house and purges it if cursed. Long-cursed houses draw them more.', null],
       ['The main hunter (gold) kills any vampire he finds, you included. No other hunter can kill you.', null],
       ['A house purged by the main hunter sends him a new hunter. Converts retire at the second house they visit.', null],
       ['Being invited in is feeding. Any vampire that goes three nights without it starves.', null],
-      ['A lesser vampire beats a recruit 60/40, and recruits die if they find you. Nobody reaches you in the crypt.', null],
+      ['A lesser vampire beats a recruit 2 to 1, and recruits die if they find you. Nobody reaches you in the crypt.', null],
       ['One vampire to a house or crypt. Other vampires may take the crypt, or be home when you need a bed.', null],
       ['Curse every other house and the vampires storm the house of worship. You only die for good with no cursed house left.', '#ffd86b', null, 50],
       ['Hold Space: fast-forward    P: pause    R: restart', '#9aa'],
