@@ -24,7 +24,7 @@ const TUNE = {
   maxQueueWait: 4,           // seconds a walker waits for a held tile before pushing through (stops jams)
   convertVisitsBeforeRetiring: 2, // a converted hunter settles in the house of his Nth visit and leaves the game
   followGap: 30,             // pixels a new convert keeps behind the main hunter on the walk home
-  deathNoticeSeconds: 7,     // how long the banner stays up after the player dies and rises elsewhere
+  deathNoticeSeconds: 5,     // longest the banner stays up after the player dies and rises elsewhere (it also clears before dusk)
   sunGraceSeconds: 2,        // time in sunlight before a vampire dies
   dawnWarningSeconds: 15,    // the dawn countdown turns red, and a fed player stays indoors, this close to sunrise
   feedSeconds: 6,            // player is locked inside after being invited in
@@ -32,13 +32,15 @@ const TUNE = {
   nightsToStarve: 3,         // a vampire that goes this many nights without being invited in starves
   hqRespawnDays: 2,          // with no hunters left, the house of worship raises one after this many dawns
   npcKnockSeconds: 4,
-  npcInviteChance: 0.33,
+  playerInviteChance: 0.5,   // the player's knock is a coin toss
+  talkBeatSeconds: 1.1,      // pause between lines of the doorstep conversation
+  npcInviteChance: 0.5,
   npcCryptChance: 0.2,       // chance an NPC vampire spends the day in the crypt instead of at home
   hunterSuspicionPerDay: 1,  // extra weight a cursed house gains per day cursed when hunters draw their visits (a clean house weighs 1)
   inspectSeconds: 3.5,       // a hunter's pause at the door of a house that turns out not to be cursed
   purgeSeconds: 3,
   hunterWakeDelay: 3,
-  recruitBeatsVampire: 0.5,  // recruited hunter against a converted vampire
+  recruitBeatsVampire: 0.4,  // converted hunter against a converted vampire: the vampire has a slight edge
   mainHunterBeatsPlayer: 1,  // only the main hunter can kill the player, and he always does
   fastForward: 8,
   returnFastForward: 3,      // gentler speed-up while hunters or vampires are still walking home
@@ -50,9 +52,8 @@ for (const [k, v] of new URLSearchParams(location.search)) {
 const T = 32, COLS = 40, ROWS = 21, HUD = 48, GRAVE_COLS = 9;
 const HOUSE_W = 3 * T, HOUSE_H = 2 * T;
 
-// Each entry is [resident's call, six plausible replies]. A knock shows three of the six and one is picked
-// at random as the winner, so the wording never hints at the answer. 18 calls x 20 ways to pick three
-// replies = 360 variations.
+// Each entry is [resident's call, six plausible replies]. A knock uses one call and one of its replies at
+// random, purely for flavour: 18 calls x 6 replies = 108 exchanges.
 const CALLS = [
   ['Who is it?', ['A traveller. The inn was full.', 'Nobody you know, but I mean no harm.', 'A friend, if you will have one.', 'Someone with sore feet and a long way still to go.', 'Your new neighbour. I thought I should say hello.', 'A stranger. I will not pretend otherwise.']],
   ['What do you want at this hour?', ['A few minutes by a fire, if you can spare them.', 'Directions, mostly. I am badly lost.', 'Only to talk. It has been a long, quiet road.', 'A roof until the weather turns.', 'To return something I think belongs to you.', 'Honestly? Company.']],
@@ -74,6 +75,22 @@ const CALLS = [
   ['What is that you are carrying?', ['A bottle. I thought we might share it.', 'Only my coat.', 'A letter I have been meaning to deliver.', 'A gift. It is rude to arrive with nothing.', 'Soil from home. A sentimental habit.', 'Everything I own, I am afraid.']],
 ];
 
+// One hundred family names and ten kinds of home. Each page load draws the town's fourteen households from
+// them once, and they keep those names until the next reload (restarting with R does not rename them).
+const FAMILY_NAMES = [
+  'Mansford', 'Talbot', 'Ashcombe', 'Blackwood', 'Carrow', 'Dunmore', 'Eastlake', 'Fairfax', 'Garrick', 'Hartwell',
+  'Ingram', 'Jessop', 'Kemble', 'Langley', 'Merrick', 'Norcott', 'Oakhurst', 'Pembroke', 'Quince', 'Radcliffe',
+  'Selwyn', 'Thackeray', 'Underhill', 'Vane', 'Whitlock', 'Yardley', 'Abernathy', 'Bellamy', 'Chilcott', 'Davenport',
+  'Ellery', 'Fenwick', 'Goddard', 'Hollis', 'Iredale', 'Jarvis', 'Kingsley', 'Lovell', 'Marlowe', 'Nesbitt',
+  'Orme', 'Pritchard', 'Quimby', 'Rookwood', 'Stanhope', 'Tremayne', 'Upton', 'Vickers', 'Wainwright', 'Yeardley',
+  'Alcott', 'Braithwaite', 'Crane', 'Dashwood', 'Everard', 'Fitzroy', 'Gresham', 'Havisham', 'Ives', 'Jellicoe',
+  'Kirkbride', 'Lascelles', 'Mowbray', 'Nightingale', 'Osgood', 'Peverell', 'Quarles', 'Ravenscroft', 'Sedgwick', 'Tulkinghorn',
+  'Urquhart', 'Varney', 'Wickham', 'Yaxley', 'Ainsworth', 'Bickerstaff', 'Culpepper', 'Drummond', 'Entwhistle', 'Farthing',
+  'Glanville', 'Heathcote', 'Isherwood', 'Jephson', 'Kenworthy', 'Lethbridge', 'Musgrave', 'Netherby', 'Ollerton', 'Penhallow',
+  'Redgrave', 'Sotheby', 'Trelawney', 'Usher', 'Venables', 'Winterbourne', 'Wolcott', 'Yelverton', 'Zouche', 'Pennyworth',
+];
+const HOME_KINDS = ['The {n} Residence', '{n} Manor', '{n} House', '{n} Cottage', '{n} Hall', '{n} Lodge', '{n} Villa', '{n} Grange', 'The {n} Homestead', '{n} Place'];
+
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const keys = new Set();
 const blocked = new Uint8Array(COLS * ROWS);
@@ -85,6 +102,7 @@ let houses, actors, player, talk, clock, nightNum, logs, flashMsg, stats, endTex
 
 const rand = (n) => Math.floor(Math.random() * n);
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const TOWN_NAMES = shuffle(FAMILY_NAMES.slice()).slice(0, 15).map((n) => HOME_KINDS[rand(HOME_KINDS.length)].replace('{n}', n));
 const cycle = () => TUNE.nightSeconds + TUNE.daySeconds;
 const isNight = () => clock < TUNE.nightSeconds;
 const timeToDawn = () => TUNE.nightSeconds - clock;
@@ -102,7 +120,8 @@ function buildMap() {
     const tx = 11 + c * 6, ty = 3 + r * 6;
     block(tx, ty, 3, 2);
     houses.push({
-      id: houses.length + 1, x: tx * T, y: ty * T,
+      id: houses.length + 1, name: TOWN_NAMES[houses.length], at: TOWN_NAMES[houses.length].replace(/^The /, 'the '),
+      x: tx * T, y: ty * T,
       door: { x: (tx + 1.5) * T, y: (ty + 2.5) * T },
       state: 'clean', isHQ: r === 1 && c === 4,
       wary: false, claim: null, cursedNights: 0, vampire: null, hunterTimer: 0,
@@ -272,14 +291,14 @@ function arriveHome(e) { e.inside = true; e.state = 'home'; e.sun = 0; }
 function curse(h) {
   h.state = 'cursed'; h.cursedNights = 0; h.wary = false; h.claim = null;
   h.cursedAt = nightNum + clock / cycle();
-  if (talk && talk.house === h) { talk = null; player.state = 'walk'; flash('Another vampire got in first.'); }
+  if (talk && talk.house === h && !talk.feeding) { talk = null; player.state = 'walk'; flash('Another vampire got in first.'); }
   if (!rally && houses.every((x) => x.isHQ || x.state === 'cursed')) startRally();
 }
 
 function spawnVampire(h) {
   const e = { kind: 'vamp', home: h, den: h, x: h.door.x, y: h.door.y, inside: true, state: 'home', alive: true, path: [], target: null, done: false, wait: 1 + Math.random() * 6, sun: 0, timer: 0, hunger: 0, fed: false };
   h.vampire = e; actors.push(e);
-  log(`A new vampire rises in house ${h.id}.`);
+  log(`A new vampire rises in ${h.at}.`);
 }
 // Every hunter lives in the house of worship. A convert appears at the house that was just purged and follows
 // the main hunter home.
@@ -296,7 +315,7 @@ function spawnHunter(recruitedAt, leader) {
 function killVampire(e, why) {
   e.alive = false; releaseClaim(e);
   if (e.home) { e.home.vampire = null; e.home.cursedNights = 0; }
-  log(`${e.home ? `The vampire from house ${e.home.id}` : 'A homeless vampire'} ${why}.`);
+  log(`${e.home ? `The vampire from ${e.home.at}` : 'A homeless vampire'} ${why}.`);
 }
 function killHunter(e) {
   e.alive = false; releaseClaim(e);
@@ -314,16 +333,16 @@ function resolvePurge(h, hunter) {
   if (!hunterWins) {
     killHunter(hunter);
     const who = hunter.main ? 'The main hunter' : 'A hunter';
-    log(playerHere ? `${who} broke into house ${h.id}. You killed him.` : `${who} died trying to purge house ${h.id}.`);
+    log(playerHere ? `${who} broke into ${h.at}. You killed him.` : `${who} died trying to purge ${h.at}.`);
     return;
   }
   if (vamp) { vamp.alive = false; releaseClaim(vamp); }
   else if (resident) resident.home = null;
   h.state = 'clean'; h.vampire = null; h.cursedNights = 0; h.claim = null;
-  log(vamp ? `Hunters staked the vampire in house ${h.id}.` : `Hunters purged house ${h.id}.`);
+  log(vamp ? `Hunters staked the vampire in ${h.at}.` : `Hunters purged ${h.at}.`);
   // Only the main hunter converts a household, and he does it every time.
-  if (hunter.main) { spawnHunter(h, hunter); log(`The main hunter converts house ${h.id}. A new hunter joins the house of worship.`); }
-  if (playerHere) killPlayer(`The main hunter found you asleep in house ${h.id}.`);
+  if (hunter.main) { spawnHunter(h, hunter); log(`The main hunter converts ${h.at}. A new hunter joins the house of worship.`); }
+  if (playerHere) killPlayer(`The main hunter found you asleep in ${h.at}.`);
 }
 
 // ---------- NPC behaviour ----------
@@ -366,7 +385,7 @@ function updateVampire(e, dt) {
     const h = e.target;
     if (h.state !== 'clean') return retarget();
     if (Math.random() < TUNE.npcInviteChance) {
-      log(`A vampire was invited into house ${h.id}.`);
+      log(`A vampire was invited into ${h.at}.`);
       e.done = true; e.fed = true;
       curse(h);
       if (!e.home) { e.home = h; h.vampire = e; }
@@ -412,7 +431,7 @@ function finishVisit(e) {
   e.visits++;
   if (e.main || e.visits < TUNE.convertVisitsBeforeRetiring) return goHome(e);
   e.alive = false;
-  log(`A hunter gives up the hunt and settles in house ${e.target.id}.`);
+  log(`A hunter gives up the hunt and settles in ${e.target.at}.`);
 }
 
 function updateHunter(e, dt) {
@@ -454,6 +473,7 @@ function onDusk() {
   nightNum++;
   log(`Night ${nightNum} falls.`);
   if (player.state === 'inside') { player.state = 'walk'; player.house = null; player.feed = 0; }
+  deathNotice = null;
   for (const h of houses) {
     h.wary = false;
     if (h.state !== 'cursed') continue;
@@ -491,7 +511,7 @@ function interact(walkedIn) {
   const p = player;
   if (p.state === 'inside') {
     if (walkedIn) return;
-    if (p.feed > 0) return flash('Still feeding.');
+    if (p.feed > 0) return;
     if (!isNight()) return flash('The sun is up. You stay inside until dusk.');
     p.state = 'walk'; p.house = null;
     return;
@@ -507,33 +527,38 @@ function interact(walkedIn) {
   startTalk(h);
 }
 
+// The invitation plays itself out in a modal, one line at a time: knock, the resident's question, the vampire's
+// answer, then a refusal or an invitation. Nothing is chosen: the outcome is a coin toss decided at the knock.
+// On an invitation the modal turns red and stays up while the player feeds.
+const REFUSALS = ['The door slams. You hear the bolt.', '"Not tonight. Be on your way."', 'A long silence. Then the light inside goes out.', '"I think not." The shutter closes.'];
+const INVITATIONS = ['"Come in, then. Come in."', '"You had better come in out of the dark."', 'The chain slides back. "Come in."', '"Well. Come in and sit down."'];
+
 function startTalk(h) {
   const call = CALLS[rand(CALLS.length)];
-  talk = { house: h, q: call[0], opts: shuffle(call[1].slice()).slice(0, 3), win: rand(3), pick: -1, timer: 0 };
+  const won = Math.random() < TUNE.playerInviteChance;
+  talk = {
+    house: h, t: 0, won, feeding: false,
+    q: call[0], a: call[1][rand(call[1].length)],
+    outcome: (won ? INVITATIONS : REFUSALS)[rand(4)],
+  };
   player.state = 'talk';
 }
 
-function chooseTalk(n) {
-  if (!talk || talk.pick >= 0) return;
-  talk.pick = n;
-  talk.timer = 1.2;
-}
-
 function updateTalk(dt) {
-  if (!talk || talk.pick < 0) return;
-  talk.timer -= dt;
-  if (talk.timer > 0) return;
-  const h = talk.house, won = talk.pick === talk.win;
-  talk = null;
-  if (!won) {
+  if (!talk || talk.feeding) return;
+  talk.t += dt;
+  if (talk.t < TUNE.talkBeatSeconds * 4.2) return;
+  const h = talk.house;
+  if (!talk.won) {
     h.wary = true; stats.slammed++;
-    log(`House ${h.id} slammed the door on you.`);
-    player.state = 'walk';
+    log(`${h.name} turned you away.`);
+    talk = null; player.state = 'walk';
     return;
   }
   stats.invited++;
   player.fed = true;
-  log(`You were invited into house ${h.id}. It is cursed.`);
+  log(`You were invited into ${h.at}. It is cursed.`);
+  talk.feeding = true;
   enterHouse(h);
   player.feed = TUNE.feedSeconds;
   curse(h);
@@ -559,7 +584,7 @@ function seekShelter() {
 // have finished their visits (the walk home counts as finished).
 const huntersDone = () => actors.every((e) => e.kind !== 'hunter' || e.state === 'return' || (e.inside && !e.assigned));
 function autoSkip() {
-  if (rally) return false;
+  if (rally || talk) return false;
   if (isNight()) return !anyDoorOpen() && (player.state === 'inside' || player.state === 'auto');
   return player.state === 'inside' && huntersDone();
 }
@@ -567,7 +592,7 @@ function autoSkip() {
 // Clock multiplier for this frame: the held key, or the automatic skip, which is gentler while anyone is
 // still walking home.
 function timeScale() {
-  if (keys.has('Space') && player.state !== 'talk') return TUNE.fastForward;
+  if (keys.has('Space') && !talk) return TUNE.fastForward;
   if (!autoSkip()) return 1;
   const walking = player.state !== 'inside' || actors.some((e) => !e.inside);
   return walking ? TUNE.returnFastForward : TUNE.fastForward;
@@ -579,7 +604,7 @@ function updatePlayer(dt) {
     if (p.feed <= 0) return;
     p.feed -= dt;
     if (p.feed > 0) return;
-    p.feed = 0;
+    p.feed = 0; talk = null;
     // Fed: step back out, unless the sun is about to rise.
     if (!isNight() || !anyDoorOpen()) return;
     if (timeToDawn() > TUNE.dawnWarningSeconds) { p.state = 'walk'; p.house = null; }
@@ -620,7 +645,7 @@ function killPlayer(text) {
   talk = null; stats.deaths++;
   enterHouse(den);
   player.feed = 0; player.hunger = 0; player.fed = false; player.sun = 0;
-  const where = den === crypt ? 'the crypt' : `house ${den.id}`;
+  const where = den === crypt ? 'the crypt' : den.at;
   log(`${text} You live on in ${where}.`);
   deathNotice = { text: 'You have been destroyed, but your hunger goes on in another...', where, at: performance.now() };
 }
@@ -695,8 +720,6 @@ addEventListener('keydown', (ev) => {
   if (ev.code === 'KeyP') paused = !paused;
   if (ev.code === 'KeyE') interact(false);
   if (ev.code === 'KeyW' || ev.code === 'ArrowUp') interact(true);
-  const n = ['Digit1', 'Digit2', 'Digit3'].indexOf(ev.code);
-  if (n >= 0) chooseTalk(n);
 });
 addEventListener('keyup', (ev) => keys.delete(ev.code));
 addEventListener('blur', () => keys.clear());
@@ -723,13 +746,38 @@ function bar(x, y, w, frac, color) {
   ctx.fillStyle = color; ctx.fillRect(x, y, w * Math.max(0, Math.min(1, frac)), 4);
 }
 
-const HOUSE_COLORS = {
-  clean: { roof: '#8a5a3c', wall: '#c9b48a' },
-  cursed: { roof: '#5b2a6e', wall: '#6f6480' },
-  hunter: { roof: '#2f5f8a', wall: '#dfe6ee' },
-};
+// Buildings carry their own status, with no labels:
+//   colour  a cursed house decays from its clean colours over the nights until it raises a vampire
+//   lights  bright red where the player sleeps, dull orange for another vampire, yellow for a household that
+//           will still answer the door, dark otherwise
+//   door    shut on every living household and on the crypt; a cursed house stands open unless a vampire
+//           is inside it
+const CLEAN = { roof: '#8a5a3c', wall: '#c9b48a' }, DECAYED = { roof: '#3a3140', wall: '#595457' };
+const WORSHIP = { roof: '#2f5f8a', wall: '#dfe6ee' };
+const LIGHT = { player: '#ff2233', vampire: '#b5651d', home: '#f2c94c', worship: '#9fc4e8' };
 
-function drawBuilding(x, y, roof, wall, win) {
+function mix(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = (shift) => Math.round(((pa >> shift) & 255) + (((pb >> shift) & 255) - ((pa >> shift) & 255)) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+
+function buildingLook(s) {
+  const occupant = playerIn(s) ? LIGHT.player : vampireInside(s) ? LIGHT.vampire : null;
+  if (s === crypt) return { light: occupant, shut: true };
+  if (s.state === 'cursed') return { light: occupant, shut: !!occupant };
+  if (s.state === 'hunter') return { light: isNight() ? null : LIGHT.worship, shut: true };
+  return { light: isNight() && !s.wary ? LIGHT.home : null, shut: true };
+}
+
+function houseColors(h) {
+  if (h.state === 'hunter') return WORSHIP;
+  if (h.state !== 'cursed') return CLEAN;
+  const t = h.isHQ || h.vampire ? 1 : 0.4 + 0.6 * Math.min(1, h.cursedNights / TUNE.nightsToSpawnVampire);
+  return { roof: mix(CLEAN.roof, DECAYED.roof, t), wall: mix(CLEAN.wall, DECAYED.wall, t) };
+}
+
+function drawBuilding(x, y, roof, wall, shut, windows, iron) {
   ctx.fillStyle = 'rgba(0,0,0,.25)';
   ctx.fillRect(x + 6, y + HOUSE_H - 2, HOUSE_W, 8);
   ctx.fillStyle = wall;
@@ -738,19 +786,48 @@ function drawBuilding(x, y, roof, wall, win) {
   ctx.beginPath();
   ctx.moveTo(x - 4, y + 34); ctx.lineTo(x + HOUSE_W + 4, y + 34); ctx.lineTo(x + HOUSE_W - 10, y - 14); ctx.lineTo(x + 10, y - 14);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#2a1c14';
-  ctx.fillRect(x + HOUSE_W / 2 - 8, y + 42, 16, 22);
-  if (win) {
-    ctx.fillStyle = win;
+  const dx = x + HOUSE_W / 2 - 8, dy = y + 42;
+  const leaf = iron ? '#2e333b' : '#7a5433', edge = iron ? '#0c0e12' : '#24160d';
+  if (shut) {
+    ctx.fillStyle = leaf; ctx.fillRect(dx, dy, 16, 22);
+    ctx.strokeStyle = edge; ctx.lineWidth = 2; ctx.strokeRect(dx + 1, dy + 1, 14, 21);
+    if (iron) {
+      ctx.fillStyle = '#0c0e12'; ctx.fillRect(dx + 4, dy + 4, 8, 5);                         // barred grille
+      ctx.fillStyle = '#6d7480'; for (const [rx, ry] of [[3, 13], [12, 13], [3, 19], [12, 19]]) ctx.fillRect(dx + rx, dy + ry, 1, 1);   // rivets
+    } else {
+      ctx.fillStyle = '#e6c36a'; ctx.fillRect(dx + 11, dy + 11, 2, 2);
+    }
+  } else {
+    ctx.fillStyle = '#0f0806'; ctx.fillRect(dx, dy, 16, 22);
+    ctx.fillStyle = leaf; ctx.fillRect(dx, dy, 4, 22);   // the door leaf, swung open
+  }
+  if (windows) {
+    ctx.fillStyle = '#2a2420';
     ctx.fillRect(x + 14, y + 42, 14, 12);
     ctx.fillRect(x + HOUSE_W - 28, y + 42, 14, 12);
   }
 }
 
+// Lights are painted after the night tint so they glow through it. A house shows them in its windows. The
+// crypt has none, so its light shows through the grille in its iron door.
+function drawLight(s, color) {
+  ctx.save();
+  ctx.shadowColor = color; ctx.shadowBlur = color === LIGHT.player ? 18 : 8;
+  ctx.fillStyle = color;
+  if (s === crypt) {
+    ctx.fillRect(s.x + HOUSE_W / 2 - 4, s.y + 46, 8, 5);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#0c0e12';
+    ctx.fillRect(s.x + HOUSE_W / 2 - 2, s.y + 46, 1, 5); ctx.fillRect(s.x + HOUSE_W / 2 + 1, s.y + 46, 1, 5);   // bars
+  } else {
+    ctx.fillRect(s.x + 14, s.y + 42, 14, 12);
+    ctx.fillRect(s.x + HOUSE_W - 28, s.y + 42, 14, 12);
+  }
+  ctx.restore();
+}
+
 function drawHouse(h) {
-  const c = HOUSE_COLORS[h.state], night = isNight();
-  const win = h.state === 'cursed' ? '#b3202a' : h.state === 'hunter' ? (night ? '#39424d' : '#9fc4e8') : (night ? '#f2c94c' : '#5d5140');
-  drawBuilding(h.x, h.y, c.roof, c.wall, win);
+  const c = houseColors(h);
+  drawBuilding(h.x, h.y, c.roof, c.wall, buildingLook(h).shut, true);
   if (h.state === 'hunter') {
     ctx.fillStyle = '#fff';
     ctx.fillRect(h.x + HOUSE_W / 2 - 2, h.y - 6, 4, 26);
@@ -779,7 +856,7 @@ function drawWorld() {
 
   const items = [];
   for (const t of tombs) items.push({ y: t.y, draw: () => { ctx.fillStyle = '#8b9390'; ctx.fillRect(t.x - 7, t.y - 16, 14, 18); ctx.beginPath(); ctx.arc(t.x, t.y - 16, 7, 0, 7); ctx.fill(); } });
-  items.push({ y: crypt.y + HOUSE_H, draw: () => drawBuilding(crypt.x, crypt.y, '#565d63', '#7d858c', null) });
+  items.push({ y: crypt.y + HOUSE_H, draw: () => drawBuilding(crypt.x, crypt.y, '#565d63', '#7d858c', buildingLook(crypt).shut, false, true) });
   for (const h of houses) items.push({ y: h.y + HOUSE_H, draw: () => drawHouse(h) });
   for (const e of actors) {
     if (e.inside) continue;
@@ -808,8 +885,7 @@ function drawWorld() {
   if (d > 0) { ctx.fillStyle = `rgba(8,10,40,${d})`; ctx.fillRect(0, 0, COLS * T, ROWS * T); }
 
   text('GRAVEYARD', GRAVE_COLS * T / 2, 20, '#aab5b0', '12px monospace', 'center');
-  text(playerIn(crypt) ? 'CRYPT (YOU)' : vampireInside(crypt) ? 'CRYPT: vampire inside' : denTaken(crypt) ? 'CRYPT: vampire coming' : 'CRYPT', crypt.x + HOUSE_W / 2, crypt.y - 20, '#cfd6d3', 'bold 12px monospace', 'center');
-  for (const h of houses) drawHouseLabel(h);
+  for (const s of [crypt, ...houses]) { const light = buildingLook(s).light; if (light) drawLight(s, light); }
 
   if (player.sun > 0) bar(player.x - 16, player.y - 34, 32, player.sun / TUNE.sunGraceSeconds, '#ffb020');
   if (player.state === 'walk') {
@@ -820,24 +896,6 @@ function drawWorld() {
       text(msg, player.x, player.y + 24, '#fff', 'bold 13px monospace', 'center');
     }
   }
-}
-
-function drawHouseLabel(h) {
-  const cx = h.x + HOUSE_W / 2, y = h.y - 20;
-  text('#' + h.id, cx, h.y + 26, 'rgba(255,255,255,.75)', '11px monospace', 'center');
-  let label = '', color = '#fff';
-  if (h.state === 'cursed') {
-    color = '#ff8a9a';
-    label = h.isHQ ? 'FALLEN' : h.vampire ? (vampireInside(h) ? 'VAMPIRE' : 'vampire out') : `cursed ${h.cursedNights}/${TUNE.nightsToSpawnVampire}`;
-  } else if (h.state === 'hunter') {
-    color = '#a9d4ff';
-    const n = hunterCount();
-    label = 'HOUSE OF WORSHIP: ' + (n ? `${n} hunter${n > 1 ? 's' : ''}${isNight() ? ' zz' : ''}` : `empty for ${h.hunterTimer}d`);
-  } else if (h.wary) {
-    color = '#ffd27a'; label = 'wary';
-  }
-  if (!rally && player.state === 'inside' && player.house === h) label = 'YOU + ' + label;
-  if (label) text(label, cx, y, color, 'bold 12px monospace', 'center');
 }
 
 function drawHud() {
@@ -879,8 +937,10 @@ function drawOverlays() {
 
   // Death gets its own banner across the middle of the screen, so no other notice can replace or hide it.
   const deathAge = deathNotice ? (now - deathNotice.at) / 1000 : Infinity;
-  if (deathAge < TUNE.deathNoticeSeconds && mode === 'play') {
-    ctx.globalAlpha = Math.min(1, TUNE.deathNoticeSeconds - deathAge);
+  // It also fades out over the last game seconds before dusk, so it is gone when the player steps outside.
+  const untilDusk = isNight() ? 0 : timeToDusk() - 2;
+  if (deathAge < TUNE.deathNoticeSeconds && untilDusk > 0 && mode === 'play') {
+    ctx.globalAlpha = Math.min(1, TUNE.deathNoticeSeconds - deathAge, untilDusk / 6);
     ctx.fillStyle = 'rgba(10,0,4,.82)'; ctx.fillRect(0, cv.height / 2 - 56, cv.width, 112);
     ctx.fillStyle = '#b3202a'; ctx.fillRect(0, cv.height / 2 - 56, cv.width, 3); ctx.fillRect(0, cv.height / 2 + 53, cv.width, 3);
     text(deathNotice.text, cv.width / 2, cv.height / 2 - 2, '#ff5a6a', 'bold 28px monospace', 'center');
@@ -889,7 +949,7 @@ function drawOverlays() {
   }
 
   let hint = '';
-  if (player.state === 'inside') hint = player.feed > 0 ? `Feeding... ${Math.ceil(player.feed)}s` : (player.house === crypt ? 'Inside the crypt.' : `Inside house ${player.house.id}.`) + (autoSkip() ? '  Nothing left to do. Time races on.' : isNight() ? '  [E] leave   hold [Space] to pass time' : '  Hold [Space] to pass time');
+  if (player.state === 'inside') hint = player.feed > 0 ? '' : (player.house === crypt ? 'Inside the crypt.' : `Inside ${player.house.at}.`) + (autoSkip() ? '  Nothing left to do. Time races on.' : isNight() ? '  [E] leave   hold [Space] to pass time' : '  Hold [Space] to pass time');
   if (flashMsg && now - flashMsg.at < flashMsg.ms) hint = flashMsg.text;
   if (rally) hint = rally.broke ? 'The house of worship falls.' : 'Every house is cursed. The vampires swarm the house of worship.';
   if (hint && mode === 'play') {
@@ -901,21 +961,23 @@ function drawOverlays() {
 }
 
 function drawTalk() {
-  const w = 720, h = 260, x = (cv.width - w) / 2, y = 230;
-  ctx.fillStyle = 'rgba(12,10,18,.94)'; ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = '#b3202a'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
-  text(`House ${talk.house.id}: a voice behind the door`, x + 24, y + 30, '#ff8a9a', 'bold 15px monospace');
-  let ty = wrap(`"${talk.q}"`, x + 24, y + 66, w - 48, 24, '#fff', 'bold 18px monospace') + 12;
-  talk.opts.forEach((o, i) => {
-    let color = '#e6e6e6';
-    if (talk.pick >= 0) color = i === talk.pick ? (i === talk.win ? '#7dffa0' : '#ff5a5a') : '#666';
-    ty = wrap(`[${i + 1}] ${o}`, x + 24, ty, w - 48, 20, color, '15px monospace') + 10;
-  });
-  if (talk.pick >= 0) {
-    const won = talk.pick === talk.win;
-    text(won ? '"Come in, then. Come in."' : 'The door slams. You hear the bolt.', x + 24, y + h - 20, won ? '#7dffa0' : '#ff5a5a', 'bold 15px monospace');
-  } else {
-    text('Press 1, 2 or 3. One reply works, and nothing tells you which.', x + 24, y + h - 20, '#888', '13px monospace');
+  const w = 720, h = 250, x = (cv.width - w) / 2, y = 235;
+  const beat = TUNE.talkBeatSeconds, shown = talk.feeding ? 4 : Math.floor(talk.t / beat) + 1;
+  const fed = talk.feeding ? 1 - player.feed / TUNE.feedSeconds : 0;
+  const red = talk.feeding ? Math.min(1, fed * 4) : 0;   // the panel bleeds to red as feeding starts
+  ctx.fillStyle = `rgba(${Math.round(12 + 98 * red)},${Math.round(10 - 6 * red)},${Math.round(18 - 8 * red)},.95)`;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = talk.feeding ? '#ff3b4e' : '#b3202a'; ctx.lineWidth = talk.feeding ? 4 : 2; ctx.strokeRect(x, y, w, h);
+  text(talk.house.name, x + 24, y + 32, '#ff8a9a', 'bold 15px monospace');
+  let ty = y + 68;
+  if (shown >= 1) { text('Knock, knock.', x + 24, ty, '#a8a8b8', 'italic 15px monospace'); ty += 34; }
+  if (shown >= 2) ty = wrap(`"${talk.q}"`, x + 24, ty, w - 48, 24, '#fff', 'bold 18px monospace') + 10;
+  if (shown >= 3) ty = wrap(`You: "${talk.a}"`, x + 24, ty, w - 48, 22, '#ffb3bd', '16px monospace') + 10;
+  if (shown >= 4) wrap(talk.outcome, x + 24, ty, w - 48, 22, talk.won ? '#7dffa0' : '#ff5a5a', 'bold 16px monospace');
+  if (talk.feeding) {
+    text('You feed.', x + 24, y + h - 34, '#fff', 'bold 18px monospace');
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x + 140, y + h - 48, w - 164, 14);
+    ctx.fillStyle = '#ff3b4e'; ctx.fillRect(x + 140, y + h - 48, (w - 164) * fed, 14);
   }
 }
 
@@ -934,14 +996,14 @@ function draw() {
       ['VAMPIRE SIMULATOR', '#ff3b4e', 'bold 44px monospace', 30],
       ['lo-fi playtest build', '#888', '14px monospace', 56],
       ['WASD to move.  Walk up to a door and press W or E.', '#fff'],
-      ['Pick one of three replies (keys 1 to 3). One gets you invited in, and it is pure luck.', '#fff'],
+      ['The doorstep talk plays out by itself. Half the time you are invited in, and you feed.', '#fff'],
       ['A house you enter is cursed. After three nights it raises a vampire of its own.', null],
       ['Sunlight kills. By day, shelter in the crypt or inside a cursed house.', null],
       ['Each morning every hunter visits one random house and purges it if cursed. Long-cursed houses draw them more.', null],
       ['The main hunter (gold) kills any vampire he finds, you included. No other hunter can kill you.', null],
       ['A house purged by the main hunter sends him a new hunter. Converts retire at the second house they visit.', null],
       ['Being invited in is feeding. Any vampire that goes three nights without it starves.', null],
-      ['A recruit against a lesser vampire is a coin toss, and recruits die if they find you. Nobody reaches you in the crypt.', null],
+      ['A lesser vampire beats a recruit 60/40, and recruits die if they find you. Nobody reaches you in the crypt.', null],
       ['One vampire to a house or crypt. Other vampires may take the crypt, or be home when you need a bed.', null],
       ['Curse every other house and the vampires storm the house of worship. You only die for good with no cursed house left.', '#ffd86b', null, 50],
       ['Hold Space: fast-forward    P: pause    R: restart', '#9aa'],
