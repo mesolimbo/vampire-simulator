@@ -1,4 +1,6 @@
 """Build check and local web server for the game. Run through the Makefile."""
+import functools
+import http.server
 import os
 import re
 import shutil
@@ -53,7 +55,7 @@ def start(port):
     )
     with open(LOG_FILE, "w") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "http.server", str(port), "--bind", HOST, "--directory", str(ROOT)],
+            [sys.executable, str(Path(__file__).resolve()), "serve", str(port)],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log, **detach,
         )
     PID_FILE.write_text(str(proc.pid))
@@ -63,6 +65,19 @@ def start(port):
             return
         time.sleep(0.1)
     sys.exit(f"server did not come up, see {LOG_FILE}")
+
+
+class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+    """Serve files with caching off, so a reload always shows the latest edit."""
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+
+def serve(port):
+    handler = functools.partial(NoCacheHandler, directory=str(ROOT))
+    http.server.ThreadingHTTPServer((HOST, port), handler).serve_forever()
 
 
 def stop(port):
@@ -83,4 +98,4 @@ def status(port):
 
 if __name__ == "__main__":
     command, port = sys.argv[1], int(sys.argv[2])
-    {"build": lambda p: build(), "start": start, "stop": stop, "status": status}[command](port)
+    {"build": lambda p: build(), "start": start, "stop": stop, "status": status, "serve": serve}[command](port)
