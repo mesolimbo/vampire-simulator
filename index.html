@@ -17,10 +17,10 @@
 // Every balance knob lives here. Override any of them from the URL, e.g. index.html?nightSeconds=30&npcInviteChance=0.5
 const TUNE = {
   nightSeconds: 60,
-  daySeconds: 40,
+  daySeconds: 50,
   playerSpeed: 150,
   vampireSpeed: 95,
-  hunterSpeed: 95,
+  hunterSpeed: 120,           // fast enough to reach the farthest home over a bridge and be back by dusk
   maxQueueWait: 4,           // seconds a walker waits for a held tile before pushing through (stops jams)
   convertVisitsBeforeRetiring: 2, // a converted hunter settles in the house of his Nth visit and leaves the game
   followGap: 30,             // pixels a new convert keeps behind the main hunter on the walk home
@@ -45,14 +45,18 @@ const TUNE = {
   mainHunterBeatsPlayer: 1,  // only the main hunter can kill the player, and he always does
   fastForward: 8,
   returnFastForward: 3,      // gentler speed-up while hunters or vampires are still walking home
+  grassCost: 1.4,            // how much longer a step on grass feels to a walker than a step on a road
+  seed: 0,                   // map seed. 0 draws a new map every game; any other number always builds the same one
 };
 for (const [k, v] of new URLSearchParams(location.search)) {
   if (k in TUNE && !isNaN(parseFloat(v))) TUNE[k] = parseFloat(v);
 }
 
-const T = 32, COLS = 40, ROWS = 21, HUD = 48, GRAVE_COLS = 9;
-const GRAVE_TOP = 7 * T, GRAVE_BOTTOM = 14 * T;   // the graveyard is the middle band on the left, around the crypt
-const HOUSE_W = 3 * T, HOUSE_H = 2 * T;
+const T = 32, COLS = 52, ROWS = 28, HUD = 48, FOOT = 92;   // the map is wider and taller than the view, which scrolls with the player
+const WORLD_W = COLS * T, WORLD_H = ROWS * T;
+const HOUSE_W = 3 * T, HOUSE_H = 2 * T, HOMES = 16;
+const RIVER_HALF = 74, ROAD_HALF = 36, BRIDGE_HALF = 40;   // half-widths in pixels
+const BUILDING = 1, WATER = 2, TOMB = 3;   // tile blockers. Only buildings stop the player by tile: water and tombs use exact shapes
 
 // Each entry is [resident's call, six plausible replies]. A knock uses one call and one of its replies at
 // random, purely for flavour: 18 calls x 6 replies = 108 exchanges.
@@ -95,11 +99,12 @@ const HOME_KINDS = ['The {n} Residence', '{n} Manor', '{n} House', '{n} Cottage'
 
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const keys = new Set();
-const blocked = new Uint8Array(COLS * ROWS);
-const crypt = { x: 3 * T, y: 9 * T, door: { x: 4.5 * T, y: 11.5 * T } };
-const tombs = [];
+const VIEW_H = cv.height - HUD - FOOT;   // the map shows between the top bar and the footer, which hold all the text
+const blocked = new Uint8Array(COLS * ROWS), road = new Uint8Array(COLS * ROWS);
+const crypt = {}, tombs = [], cam = { x: 0, y: 0 };
 
 let mode = 'title', paused = false;
+let river, roads, bridges;
 let houses, actors, player, talk, clock, nightNum, logs, flashMsg, stats, endText, rally, deathNotice;
 
 const rand = (n) => Math.floor(Math.random() * n);
@@ -113,34 +118,127 @@ const sunTime = () => clock - TUNE.nightSeconds;
 const church = () => houses.find((h) => h.isHQ);
 const hunterCount = () => actors.filter((e) => e.kind === 'hunter' && e.alive).length;
 
-function buildMap() {
-  blocked.fill(0);
-  const block = (tx, ty, w, h) => { for (let y = ty; y < ty + h; y++) for (let x = tx; x < tx + w; x++) blocked[y * COLS + x] = 1; };
-  block(3, 9, 3, 2);
-  houses = [];
-  // Five houses a row, plus a sixth on the left of the top and bottom rows where the graveyard used to reach.
-  for (let r = 0; r < 3; r++) for (let c = (r === 1 ? 0 : -1); c < 5; c++) {
-    const tx = 11 + c * 6, ty = 3 + r * 6;
-    block(tx, ty, 3, 2);
-    houses.push({
-      id: houses.length + 1, name: TOWN_NAMES[houses.length], at: TOWN_NAMES[houses.length].replace(/^The /, 'the '),
-      x: tx * T, y: ty * T,
-      door: { x: (tx + 1.5) * T, y: (ty + 2.5) * T },
-      state: 'clean', isHQ: r === 1 && c === 4,
-      wary: false, claim: null, cursedNights: 0, vampire: null, hunterTimer: 0,
-    });
+// ---------- map generation ----------
+
+// The river and the roads are straight lines: a point plus a unit direction. side() is the signed distance
+// from a line (its sign names the bank), off() the plain distance.
+const side = (l, x, y) => (x - l.x) * l.dy - (y - l.y) * l.dx;
+const off = (l, x, y) => Math.abs(side(l, x, y));
+const inWater = (x, y) => off(river, x, y) < RIVER_HALF - 4 && !roads.some((r) => off(r, x, y) <= BRIDGE_HALF - 9);
+
+function seeded(a) {
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// One attempt at a map (see Design/procedural-maps.png). An imaginary hexagon sits in the middle of the map.
+// The river runs through one pair of its opposing edges and a road through each of the other two pairs, so
+// both roads cross the river, and each crossing gets a bridge. The crypt and the house of worship go at the
+// far ends of opposite banks, and the homes anywhere that is dry and off the roads.
+// Returns false when the draw does not work out (bridges too close, no room, a door cut off); the caller redraws.
+function layout(rnd) {
+  blocked.fill(0); road.fill(0); tombs.length = 0;
+  const R = WORLD_H / Math.sqrt(3);   // flat edges of the hexagon lie on the top and bottom of the map
+  const corner = (i) => ({ x: WORLD_W / 2 + R * Math.cos(i * Math.PI / 3), y: WORLD_H / 2 + R * Math.sin(i * Math.PI / 3) });
+  const crossing = (edge) => {
+    const a = corner(edge), b = corner(edge + 1), t = 0.2 + 0.6 * rnd();
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  };
+  const through = (edge) => {
+    const a = crossing(edge), b = crossing(edge + 3), len = Math.hypot(b.x - a.x, b.y - a.y);
+    return { x: a.x, y: a.y, dx: (b.x - a.x) / len, dy: (b.y - a.y) / len };
+  };
+  const first = Math.floor(rnd() * 3);
+  [river, ...roads] = [0, 1, 2].map((i) => through((first + i) % 3));
+
+  bridges = [];
+  for (const r of roads) {
+    const sin = r.dx * river.dy - r.dy * river.dx;   // of the angle between road and river
+    if (Math.abs(sin) < 0.7) return false;           // a shallow crossing would need a very long bridge
+    const s = -side(river, r.x, r.y) / sin;
+    // Long enough to span all the water under the road, plus a little of each bank.
+    const half = (RIVER_HALF + BRIDGE_HALF * Math.sqrt(1 - sin * sin)) / Math.abs(sin) + 10;
+    const b = { x: r.x + r.dx * s, y: r.y + r.dy * s, dx: r.dx, dy: r.dy, half };
+    if (b.x < 4 * T || b.x > WORLD_W - 4 * T || b.y < 4 * T || b.y > WORLD_H - 4 * T) return false;
+    bridges.push(b);
   }
-  if (!tombs.length) {
-    let seed = 7;
-    const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-    for (let tries = 0; tombs.length < 8 && tries < 5000; tries++) {
-      const x = 18 + next() * (GRAVE_COLS * T - 36), y = GRAVE_TOP + 38 + next() * (GRAVE_BOTTOM - GRAVE_TOP - 46);
-      if (x > 2.4 * T && x < 6.6 * T && y > 8.2 * T && y < 12.6 * T) continue;   // clear of the crypt
-      if (y > 10.6 * T && y < 12.6 * T) continue;                                  // and of the road to its door
-      if (tombs.some((t) => Math.hypot(t.x - x, t.y - y) < 44)) continue;
-      tombs.push({ x, y });
+  if (Math.hypot(bridges[0].x - bridges[1].x, bridges[0].y - bridges[1].y) < 8 * T) return false;
+
+  // Walkers move tile to tile, so water tiles are a little wider than the river and bridge tiles a little
+  // narrower than the bridge. keepOut marks every tile that water or a road touches at all.
+  const keepOut = new Uint8Array(COLS * ROWS);
+  for (let i = 0; i < COLS * ROWS; i++) {
+    const x = (i % COLS + 0.5) * T, y = (Math.floor(i / COLS) + 0.5) * T;
+    const toRoad = Math.min(off(roads[0], x, y), off(roads[1], x, y)), toRiver = off(river, x, y);
+    if (toRoad <= ROAD_HALF) road[i] = 1;
+    if (toRiver < RIVER_HALF + 12 && toRoad > BRIDGE_HALF - 10) blocked[i] = WATER;
+    if (toRiver < RIVER_HALF + 0.75 * T || toRoad < ROAD_HALF + 0.75 * T) keepOut[i] = 1;
+  }
+
+  // A building covers 3 x 2 tiles with its door on the tile below. It needs those, and the row above for its
+  // roof, clear, and it keeps padX columns or padY rows between itself and every other building.
+  const spots = [];
+  const fits = (tx, ty, padX, padY) => {
+    for (let y = ty - 1; y <= ty + 2; y++) for (let x = tx; x < tx + 3; x++) if (keepOut[y * COLS + x]) return false;
+    return spots.every((s) => Math.abs(s.tx - tx) >= Math.max(s.padX, padX) || Math.abs(s.ty - ty) >= Math.max(s.padY, padY));
+  };
+  // With a bank given, takes the spot farthest from the river out of ten random ones on that bank.
+  // `edge` is how many tiles to stay clear of the map's border.
+  const place = (padX, padY, bank = 0, edge = 1) => {
+    let best = null;
+    for (let tries = 0, found = 0; tries < 400 && found < (bank ? 10 : 1); tries++) {
+      const tx = edge + Math.floor(rnd() * (COLS - 2 - 2 * edge)), ty = edge + Math.floor(rnd() * (ROWS - 2 - 2 * edge));
+      if (!fits(tx, ty, padX, padY)) continue;
+      const reach = side(river, (tx + 1.5) * T, (ty + 1) * T) * bank;
+      if (reach < 0) continue;
+      found++;
+      if (!best || reach > best.reach) best = { tx, ty, padX, padY, reach };
     }
+    if (best) spots.push(best);
+    return best;
+  };
+  const bank = rnd() < 0.5 ? 1 : -1;
+  const cryptSpot = place(8, 7, bank, 3), churchSpot = cryptSpot && place(5, 4, -bank);   // wide padding leaves room for the graveyard
+  if (!churchSpot) return false;
+  for (let i = 0; i < HOMES; i++) if (!place(5, 4)) return false;
+
+  const building = (s) => {
+    for (let y = s.ty; y < s.ty + 2; y++) for (let x = s.tx; x < s.tx + 3; x++) blocked[y * COLS + x] = BUILDING;
+    return { x: s.tx * T, y: s.ty * T, door: { x: (s.tx + 1.5) * T, y: (s.ty + 2.5) * T } };
+  };
+  Object.assign(crypt, building(cryptSpot));
+  houses = spots.slice(1).map((s, i) => ({
+    ...building(s),
+    id: i + 1, name: TOWN_NAMES[i], at: TOWN_NAMES[i].replace(/^The /, 'the '),
+    state: 'clean', isHQ: s === churchSpot,
+    wary: false, claim: null, cursedNights: 0, vampire: null, hunterTimer: 0,
+  }));
+
+  // Tombstones stand around the crypt, never side by side, and never between the crypt and its door.
+  for (let tries = 0; tombs.length < 8 && tries < 300; tries++) {
+    const tx = cryptSpot.tx - 3 + Math.floor(rnd() * 9), ty = cryptSpot.ty - 2 + Math.floor(rnd() * 8);
+    if (tx < 1 || ty < 1 || tx > COLS - 2 || ty > ROWS - 2 || keepOut[ty * COLS + tx]) continue;
+    if (Math.abs(tx - cryptSpot.tx - 1) <= 2 && ty >= cryptSpot.ty - 1 && ty <= cryptSpot.ty + 4) continue;
+    if (tombs.some((t) => Math.abs(t.tx - tx) < 2 && Math.abs(t.ty - ty) < 2)) continue;
+    blocked[ty * COLS + tx] = TOMB;
+    tombs.push({ tx, ty, x: (tx + 0.5) * T + rnd() * 8 - 4, y: (ty + 0.5) * T + 6 });
   }
+
+  // Every door must be reachable from every other, on foot, over the bridges.
+  Object.assign(crypt.door, fieldFrom(crypt.door));
+  if (!houses.every((h) => crypt.door.cost[tileOf(h.door)] < Infinity)) return false;
+  for (const h of houses) Object.assign(h.door, fieldFrom(h.door));
+  return true;
+}
+
+function buildMap() {
+  const seed = TUNE.seed || 1 + rand(1e9);
+  for (let attempt = 0; !layout(seeded(seed + attempt)); attempt++);
+  console.log(`Map seed ${seed}. Add ?seed=${seed} to the URL to build this map again.`);
 }
 
 function reset() {
@@ -149,6 +247,7 @@ function reset() {
   clock = 0; nightNum = 1;
   stats = { invited: 0, slammed: 0, deaths: 0 };
   player = { x: crypt.door.x, y: crypt.door.y, state: 'walk', house: null, feed: 0, sun: 0, hunger: 0, fed: false, knocksTonight: 0 };
+  aimCamera(true);
   church().state = 'hunter';
   spawnHunter();
   log('Night 1. You leave the crypt.');
@@ -161,35 +260,72 @@ function flash(text, ms = 2200) { flashMsg = { text, at: performance.now(), ms }
 
 function blockedAt(px, py) {
   const tx = Math.floor(px / T), ty = Math.floor(py / T);
-  return tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty * COLS + tx] === 1;
+  return tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty * COLS + tx] === BUILDING;
 }
 function canStand(x, y) {
   const r = 9;
   return !blockedAt(x - r, y - r) && !blockedAt(x + r, y - r) && !blockedAt(x - r, y + r) && !blockedAt(x + r, y + r)
+    && !inWater(x, y)
     && !tombs.some((t) => Math.abs(x - t.x) < r + 7 && y + r > t.y - 10 && y - r < t.y + 2);
 }
 
-function findPath(fx, fy, gx, gy) {
-  const start = Math.floor(fy / T) * COLS + Math.floor(fx / T), goal = Math.floor(gy / T) * COLS + Math.floor(gx / T);
-  const prev = new Int16Array(COLS * ROWS).fill(-1);
-  const queue = [start];
-  prev[start] = start;
+const tileOf = (p) => Math.floor(p.y / T) * COLS + Math.floor(p.x / T);
+const tileCentre = (i) => ({ x: (i % COLS + 0.5) * T, y: (Math.floor(i / COLS) + 0.5) * T });
+const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+// Calls visit(tile, stepLength) for each tile a walker can step to from `cur`. A diagonal step needs both
+// tiles beside it free, so nobody cuts a corner of a house or of the river.
+function eachStep(cur, visit) {
+  const cx = cur % COLS, cy = (cur - cx) / COLS;
+  for (const [dx, dy] of STEPS) {
+    const nx = cx + dx, ny = cy + dy;
+    if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS || blocked[ny * COLS + nx]) continue;
+    if (dx && dy && (blocked[cy * COLS + nx] || blocked[ny * COLS + cx])) continue;
+    visit(ny * COLS + nx, dx && dy ? Math.SQRT2 : 1);
+  }
+}
+
+// Every walker is always heading for some door, so each door carries a map of the whole town, built once:
+// `cost` is the cheapest way from each tile to the door, with grass dearer than road so that walkers keep to
+// the roads where they can, and `len` is how long that way is in tiles.
+function fieldFrom(door) {
+  const cost = new Float32Array(COLS * ROWS).fill(Infinity), len = new Float32Array(COLS * ROWS).fill(Infinity);
+  const start = tileOf(door), queue = [start];
+  const weight = (i) => (road[i] ? 1 : TUNE.grassCost);
+  cost[start] = len[start] = 0;
   for (let qi = 0; qi < queue.length; qi++) {
     const cur = queue[qi];
-    if (cur === goal) break;
-    const cx = cur % COLS, cy = (cur - cx) / COLS;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = cx + dx, ny = cy + dy;
-      if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
-      const n = ny * COLS + nx;
-      if (blocked[n] || prev[n] !== -1) continue;
-      prev[n] = cur;
+    eachStep(cur, (n, d) => {
+      const c = cost[cur] + d * (weight(cur) + weight(n)) / 2;
+      if (c >= cost[n] - 1e-3) return;
+      cost[n] = c; len[n] = len[cur] + d;
       queue.push(n);
-    }
+    });
   }
+  return { cost, len };
+}
+
+// The walk from where `e` stands to a door, as tile centres, found by going downhill on the door's cost map.
+function pathTo(e, door) {
   const path = [];
-  if (prev[goal] === -1) return path;
-  for (let cur = goal; cur !== start; cur = prev[cur]) path.unshift({ x: (cur % COLS + 0.5) * T, y: (Math.floor(cur / COLS) + 0.5) * T });
+  let cur = tileOf(e);
+  if (door.cost[cur] === Infinity) {
+    // The player can stand where walkers cannot, such as the river's edge. Start from the nearest tile that can be walked.
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < COLS * ROWS; i++) {
+      if (door.cost[i] === Infinity) continue;
+      const c = tileCentre(i), d = Math.hypot(c.x - e.x, c.y - e.y);
+      if (d < bestD) { best = i; bestD = d; }
+    }
+    if (best < 0) return path;
+    path.push(tileCentre(cur = best));
+  }
+  while (door.cost[cur] > 0) {
+    let next = cur;
+    eachStep(cur, (n) => { if (door.cost[n] < door.cost[next]) next = n; });
+    if (next === cur) break;
+    path.push(tileCentre(cur = next));
+  }
   return path;
 }
 
@@ -214,7 +350,6 @@ function heading(e) {
   return len < 0.01 ? null : { x: dx / len, y: dy / len };
 }
 
-const tileOf = (p) => Math.floor(p.y / T) * COLS + Math.floor(p.x / T);
 const walkersOf = (e) => actors.filter((o) => o !== e && o.alive && o.kind === e.kind && !o.inside && o.path.length);
 
 function mustWait(e) {
@@ -242,11 +377,15 @@ function step(e, speed, dt) {
   return follow(e, speed, dt);
 }
 
-const travelTime = (from, door, speed) => (Math.abs(from.x - door.x) + Math.abs(from.y - door.y)) * 1.15 / speed;
+// Walking time along the real route, bridges included. A little is added for waiting in single file.
+function travelTime(from, door, speed) {
+  const tiles = door.len[tileOf(from)];
+  return (tiles < Infinity ? tiles * T * 1.1 : (Math.abs(from.x - door.x) + Math.abs(from.y - door.y)) * 1.15) / speed;
+}
 
 function setTarget(e, h) {
   e.target = h; h.claim = e;
-  e.path = findPath(e.x, e.y, h.door.x, h.door.y);
+  e.path = pathTo(e, h.door);
   e.state = 'go'; e.inside = false; e.den = null;
 }
 function releaseClaim(e) {
@@ -278,14 +417,14 @@ function goDen(e, den) {
     e.home = den; den.vampire = e;
   }
   e.den = den;
-  e.path = findPath(e.x, e.y, den.door.x, den.door.y);
+  e.path = pathTo(e, den.door);
   e.state = 'return'; e.inside = false;
 }
 
 function goHome(e) {
   if (e.kind === 'vamp') return goDen(e, chooseDen(e) || e.home || crypt);
   releaseClaim(e);
-  e.path = findPath(e.x, e.y, e.home.door.x, e.home.door.y);
+  e.path = pathTo(e, e.home.door);
   e.state = 'return';
 }
 function arriveHome(e) { e.inside = true; e.state = 'home'; e.sun = 0; }
@@ -443,7 +582,7 @@ function updateHunter(e, dt) {
   if (e.inside) {
     if (!day || !e.assigned || sunTime() < TUNE.hunterWakeDelay + e.wait || doorBusy(e)) return;
     e.target = e.assigned; e.assigned = null;
-    e.path = findPath(e.x, e.y, e.target.door.x, e.target.door.y);
+    e.path = pathTo(e, e.target.door);
     e.state = 'go'; e.inside = false;
     return;
   }
@@ -579,9 +718,9 @@ function seekShelter() {
   const p = player;
   const options = [crypt, ...houses].filter(shelterFree);
   if (!options.length) return;
-  const dist = (s) => Math.abs(p.x - s.door.x) + Math.abs(p.y - s.door.y);
+  const dist = (s) => travelTime(p, s.door, 1);
   p.autoDen = options.reduce((best, s) => (dist(s) < dist(best) ? s : best));
-  p.path = findPath(p.x, p.y, p.autoDen.door.x, p.autoDen.door.y);
+  p.path = pathTo(p, p.autoDen.door);
   p.state = 'auto';
   flash('Every door is shut to you tonight. You return to shelter.', 4000);
 }
@@ -666,11 +805,11 @@ function startRally() {
     if (e.kind !== 'vamp') continue;
     releaseClaim(e);
     e.inside = false; e.den = null; e.state = 'rally';
-    e.path = findPath(e.x, e.y, door.x, door.y);
+    e.path = pathTo(e, door);
   }
   talk = null;
   player.state = 'rally'; player.house = null; player.feed = 0;
-  player.path = findPath(player.x, player.y, door.x, door.y);
+  player.path = pathTo(player, door);
 }
 
 function updateRally(dt) {
@@ -862,13 +1001,12 @@ function drawCross(h) {
   ctx.restore();
 }
 
-function drawActor(x, y, body, trim, label, r = 9) {
+function drawActor(x, y, body, trim, r = 9) {
   ctx.fillStyle = 'rgba(0,0,0,.35)';
   ctx.beginPath(); ctx.ellipse(x, y + r - 2, r, r * 0.45, 0, 0, 7); ctx.fill();
   ctx.fillStyle = body;
   ctx.beginPath(); ctx.arc(x, y - r * 0.5, r, 0, 7); ctx.fill();
   ctx.strokeStyle = trim; ctx.lineWidth = 2; ctx.stroke();
-  text(label, x, y - r * 0.5 + 4, trim, 'bold 11px monospace', 'center');
 }
 
 function darkness() {
@@ -876,10 +1014,47 @@ function darkness() {
   return 0.5 * Math.min(1, clock / 3, timeToDawn() / 3);
 }
 
+// The view keeps the player in the middle and stops at the edges of the map.
+// While the player is shut indoors the view drifts to whoever is doing something: a hunter or vampire at a
+// door first, then the main hunter, then anyone else on the move. It stays with one walker until he goes in,
+// unless someone else reaches a door. For the final swarm it settles on the house of worship.
+function cameraSubject() {
+  if (rally) return church().door;
+  if (player.state !== 'inside' || player.feed > 0) return player;
+  const drama = (e) => (e.state === 'purge' || e.state === 'knock' ? 3 : e.state === 'inspect' ? 2 : e.main ? 1.5 : 1);
+  const out = actors.filter((e) => e.alive && !e.inside);
+  const best = out.reduce((a, b) => (a && drama(a) >= drama(b) ? a : b), null);
+  const held = out.includes(cam.focus) ? cam.focus : null;
+  cam.focus = held && (drama(held) >= 2 || drama(best) < 2) ? held : best;
+  return cam.focus || player;
+}
+
+function aimCamera(snap) {
+  const clamp = (v, max) => Math.max(0, Math.min(max, v));
+  const s = snap ? player : cameraSubject();
+  const dx = clamp(s.x - cv.width / 2, WORLD_W - cv.width) - cam.x, dy = clamp(s.y - VIEW_H / 2, WORLD_H - VIEW_H) - cam.y;
+  const far = Math.hypot(dx, dy);
+  // Following the player is brisk. Panning to anything else is a slow glide of a few pixels a frame.
+  const k = snap ? 1 : s === player ? 0.12 : far && Math.min(1, Math.min(5, Math.max(0.5, far * 0.04)) / far);
+  cam.x += dx * k; cam.y += dy * k;
+}
+
+function drawGround() {
+  ctx.fillStyle = '#3f5f3c'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  ctx.fillStyle = '#35503a';   // the graveyard's darker turf
+  ctx.beginPath(); ctx.ellipse(crypt.x + HOUSE_W / 2, crypt.y + HOUSE_H + T / 2, 5.2 * T, 4.4 * T, 0, 0, 7); ctx.fill();
+  const strip = (l, half, color, reach = WORLD_W + WORLD_H) => {
+    ctx.strokeStyle = color; ctx.lineWidth = half * 2;
+    ctx.beginPath(); ctx.moveTo(l.x - l.dx * reach, l.y - l.dy * reach); ctx.lineTo(l.x + l.dx * reach, l.y + l.dy * reach); ctx.stroke();
+  };
+  for (const r of roads) strip(r, ROAD_HALF, '#8c7757');
+  strip(river, RIVER_HALF, '#2a5c8d');
+  strip(river, RIVER_HALF - 14, '#2f67a0');
+  for (const b of bridges) { strip(b, BRIDGE_HALF, '#38250f', b.half); strip(b, BRIDGE_HALF - 5, '#6a4a2b', b.half); }
+}
+
 function drawWorld() {
-  ctx.fillStyle = '#3f5f3c'; ctx.fillRect(0, 0, COLS * T, ROWS * T);
-  ctx.fillStyle = '#4a6a46';
-  for (let r = 0; r < 3; r++) ctx.fillRect((r === 1 ? GRAVE_COLS : 4) * T + 8, (5 + r * 6) * T + 2, COLS * T, T + 20);
+  drawGround();
 
   const items = [];
   for (const t of tombs) items.push({ y: t.y, draw: () => { ctx.fillStyle = '#8b9390'; ctx.fillRect(t.x - 7, t.y - 16, 14, 18); ctx.beginPath(); ctx.arc(t.x, t.y - 16, 7, 0, 7); ctx.fill(); } });
@@ -887,43 +1062,34 @@ function drawWorld() {
   for (const h of houses) items.push({ y: h.y + HOUSE_H, draw: () => drawHouse(h) });
   for (const e of actors) {
     if (e.inside) continue;
-    // Anyone standing at a door stays outside it, on the top edge of the road. Walkers use two lanes below
-    // that, keeping to the right of their route, so they pass each other and the door-standers side by side.
+    // Anyone standing at a door stays close up against it. Walkers keep to the right of their route, so two
+    // going opposite ways pass side by side.
     const h = heading(e), standing = e.atDoor || e.state === 'knock' || e.state === 'inspect' || e.state === 'purge';
     const tx = standing || !h ? 0 : -h.y * 9;
-    const ty = standing || !h ? -8 : h.x * 9 + Math.abs(h.x) * 19;
+    const ty = standing || !h ? -8 : h.x * 9;
     e.ox = (e.ox || 0) + (tx - (e.ox || 0)) * 0.2;
     e.oy = (e.oy || 0) + (ty - (e.oy || 0)) * 0.2;
     const x = e.x + e.ox, y = e.y + e.oy;
     items.push({ y, draw: () => {
-      if (e.kind === 'vamp') drawActor(x, y, '#3a1747', '#e0566a', 'V');
-      else if (e.main) drawActor(x, y, '#f2c94c', '#3a2a00', 'H', 11);
-      else drawActor(x, y, '#e8eef5', '#1f4f7a', 'h');
+      if (e.kind === 'vamp') drawActor(x, y, '#3a1747', '#e0566a');
+      else if (e.main) drawActor(x, y, '#f2c94c', '#3a2a00', 11);
+      else drawActor(x, y, '#e8eef5', '#1f4f7a');
       if (e.state === 'knock') bar(x - 12, y - 26, 24, 1 - e.timer / TUNE.npcKnockSeconds, '#e0566a');
       if (e.state === 'purge') bar(x - 12, y - 26, 24, 1 - e.timer / TUNE.purgeSeconds, '#6fb3e8');
-      if (e.state === 'inspect') { bar(x - 12, y - 26, 24, 1 - e.timer / TUNE.inspectSeconds, '#d8d8d8'); text('?', x, y - 32, '#fff', 'bold 14px monospace', 'center'); }
+      if (e.state === 'inspect') bar(x - 12, y - 26, 24, 1 - e.timer / TUNE.inspectSeconds, '#d8d8d8');
     } });
   }
-  if (player.state !== 'inside') items.push({ y: player.y, draw: () => drawActor(player.x, player.y, '#111', '#ff3b4e', 'Y', 11) });
+  if (player.state !== 'inside') items.push({ y: player.y, draw: () => drawActor(player.x, player.y, '#111', '#ff3b4e', 11) });
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
 
   const d = darkness();
-  if (d > 0) { ctx.fillStyle = `rgba(8,10,40,${d})`; ctx.fillRect(0, 0, COLS * T, ROWS * T); }
+  if (d > 0) { ctx.fillStyle = `rgba(8,10,40,${d})`; ctx.fillRect(0, 0, WORLD_W, WORLD_H); }
 
-  text('GRAVEYARD', GRAVE_COLS * T / 2, GRAVE_TOP + 12, '#aab5b0', '12px monospace', 'center');
   for (const s of [crypt, ...houses]) { const light = buildingLook(s).light; if (light) drawLight(s, light); }
   if (rally || church().state === 'hunter') drawCross(church());
 
   if (player.sun > 0) bar(player.x - 16, player.y - 34, 32, player.sun / TUNE.sunGraceSeconds, '#ffb020');
-  if (player.state === 'walk') {
-    if (nearCrypt()) text(denTaken(crypt) ? 'Crypt is taken' : '[E] Enter crypt', player.x, player.y + 24, '#fff', 'bold 13px monospace', 'center');
-    const h = nearDoor();
-    if (h) {
-      const msg = h.state === 'cursed' ? (vampireInside(h) ? 'Occupied by a vampire' : '[E] Enter') : h.state === 'hunter' ? 'House of worship' : h.wary ? 'Wary until tomorrow night' : isNight() ? '[E] Knock' : '';
-      text(msg, player.x, player.y + 24, '#fff', 'bold 13px monospace', 'center');
-    }
-  }
 }
 
 function drawHud() {
@@ -948,20 +1114,42 @@ function drawHud() {
   else if (timeScale() > 1) text(`>> x${timeScale()}`, cv.width - 16, 29, '#7dffa0', 'bold 15px monospace', 'right');
 }
 
+// What the player can do at the door they are standing at. Shown in the footer, never on the map.
+function doorPrompt() {
+  if (player.state !== 'walk') return '';
+  if (nearCrypt()) return denTaken(crypt) ? 'The crypt is taken.' : 'The crypt.  [E] enter';
+  const h = nearDoor();
+  if (!h) return '';
+  if (h.state === 'cursed') return vampireInside(h) ? `${h.name}. A vampire is inside.` : `${h.name}.  [E] enter`;
+  if (h.state === 'hunter') return 'The house of worship.';
+  if (h.wary) return `${h.name}. Wary until tomorrow night.`;
+  return isNight() ? `${h.name}.  [E] knock` : h.name + '.';
+}
+
+// The footer: one line for what the player can do or has just been told, then the last three events, newest
+// at the bottom, each fading out with age.
+function drawFooter() {
+  const now = performance.now(), top = cv.height - FOOT;
+  ctx.fillStyle = '#14141c'; ctx.fillRect(0, top, cv.width, FOOT);
+
+  let hint = doorPrompt();
+  if (player.state === 'inside') hint = player.feed > 0 ? '' : (player.house === crypt ? 'Inside the crypt.' : `Inside ${player.house.at}.`) + (autoSkip() ? '  Nothing left to do. Time races on.' : isNight() ? '  [E] leave   hold [Space] to pass time' : '  Hold [Space] to pass time');
+  if (flashMsg && now - flashMsg.at < flashMsg.ms) hint = flashMsg.text;
+  if (rally) hint = rally.broke ? 'The house of worship falls.' : 'Every house is cursed. The vampires swarm the house of worship.';
+  if (hint && mode === 'play') text(hint, 16, top + 24, '#fff', 'bold 15px monospace');
+
+  logs.slice(0, 3).forEach((l, i) => {
+    const age = (now - l.at) / 1000;
+    if (age > 12) return;
+    ctx.globalAlpha = Math.min(1, 12 - age);
+    text(l.text, 16, top + 82 - i * 18, i ? '#aaa' : '#eee');
+  });
+  ctx.globalAlpha = 1;
+}
+
 function drawOverlays() {
   const now = performance.now();
-  let y = cv.height - 12;
-  for (const l of logs) {
-    const age = (now - l.at) / 1000;
-    if (age > 12) continue;
-    ctx.globalAlpha = Math.min(1, 12 - age);
-    ctx.font = '13px monospace';
-    const w = ctx.measureText(l.text).width;
-    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(8, y - 14, w + 12, 19);
-    text(l.text, 14, y, '#eee');
-    y -= 21;
-  }
-  ctx.globalAlpha = 1;
+  drawFooter();
 
   // Death gets its own banner across the middle of the screen, so no other notice can replace or hide it.
   const deathAge = deathNotice ? (now - deathNotice.at) / 1000 : Infinity;
@@ -972,24 +1160,14 @@ function drawOverlays() {
     ctx.fillStyle = 'rgba(10,0,4,.82)'; ctx.fillRect(0, cv.height / 2 - 56, cv.width, 112);
     ctx.fillStyle = '#b3202a'; ctx.fillRect(0, cv.height / 2 - 56, cv.width, 3); ctx.fillRect(0, cv.height / 2 + 53, cv.width, 3);
     text(deathNotice.text, cv.width / 2, cv.height / 2 - 2, '#ff5a6a', 'bold 28px monospace', 'center');
-    text(`You rise in ${deathNotice.where}.`, cv.width / 2, cv.height / 2 + 30, '#ddd', '16px monospace', 'center');
+    text(`You'll rise again in ${deathNotice.where}.`, cv.width / 2, cv.height / 2 + 30, '#ddd', '16px monospace', 'center');
     ctx.globalAlpha = 1;
   }
 
-  let hint = '';
-  if (player.state === 'inside') hint = player.feed > 0 ? '' : (player.house === crypt ? 'Inside the crypt.' : `Inside ${player.house.at}.`) + (autoSkip() ? '  Nothing left to do. Time races on.' : isNight() ? '  [E] leave   hold [Space] to pass time' : '  Hold [Space] to pass time');
-  if (flashMsg && now - flashMsg.at < flashMsg.ms) hint = flashMsg.text;
-  if (rally) hint = rally.broke ? 'The house of worship falls.' : 'Every house is cursed. The vampires swarm the house of worship.';
-  if (hint && mode === 'play') {
-    ctx.font = 'bold 15px monospace';
-    const w = ctx.measureText(hint).width;
-    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(cv.width / 2 - w / 2 - 12, cv.height - 44, w + 24, 28);
-    text(hint, cv.width / 2, cv.height - 25, '#fff', 'bold 15px monospace', 'center');
-  }
 }
 
 function drawTalk() {
-  const w = 720, h = 250, x = (cv.width - w) / 2, y = 235;
+  const w = 720, h = 250, x = (cv.width - w) / 2, y = HUD + (VIEW_H - h) / 2;
   const beat = TUNE.talkBeatSeconds, shown = talk.feeding ? 4 : Math.floor(talk.t / beat) + 1;
   const fed = talk.feeding ? 1 - player.feed / TUNE.feedSeconds : 0;
   const red = talk.feeding ? Math.min(1, fed * 4) : 0;   // the panel bleeds to red as feeding starts
@@ -1027,6 +1205,7 @@ function draw() {
       ['The doorstep talk plays out by itself. Your first knock each night is 2 to 1 to get you in, the rest are even.', '#fff'],
       ['A house you enter is cursed. After three nights it raises a vampire of its own.', null],
       ['Sunlight kills. By day, shelter in the crypt or inside a cursed house.', null],
+      ['The town is new every game. Nobody can cross the river except by its two bridges.', null],
       ['Each morning every hunter visits one random house and purges it if cursed. Long-cursed houses draw them more.', null],
       ['The main hunter (gold) kills any vampire he finds, you included. No other hunter can kill you.', null],
       ['A house purged by the main hunter sends him a new hunter. Converts retire at the second house they visit.', null],
@@ -1040,7 +1219,10 @@ function draw() {
     return;
   }
   drawHud();
-  ctx.save(); ctx.translate(0, HUD);
+  aimCamera(false);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, HUD, cv.width, VIEW_H); ctx.clip();
+  ctx.translate(-Math.round(cam.x), HUD - Math.round(cam.y));
   drawWorld();
   ctx.restore();
   drawOverlays();
