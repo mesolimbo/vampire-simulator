@@ -1,0 +1,3 @@
+.build/
+.playwright-mcp/
+__pycache__/
