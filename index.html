@@ -51,6 +51,7 @@ for (const [k, v] of new URLSearchParams(location.search)) {
 }
 
 const T = 32, COLS = 40, ROWS = 21, HUD = 48, GRAVE_COLS = 9;
+const GRAVE_TOP = 7 * T, GRAVE_BOTTOM = 14 * T;   // the graveyard is the middle band on the left, around the crypt
 const HOUSE_W = 3 * T, HOUSE_H = 2 * T;
 
 // Each entry is [resident's call, six plausible replies]. A knock uses one call and one of its replies at
@@ -76,7 +77,7 @@ const CALLS = [
   ['What is that you are carrying?', ['A bottle. I thought we might share it.', 'Only my coat.', 'A letter I have been meaning to deliver.', 'A gift. It is rude to arrive with nothing.', 'Soil from home. A sentimental habit.', 'Everything I own, I am afraid.']],
 ];
 
-// One hundred family names and ten kinds of home. Each page load draws the town's fourteen households from
+// One hundred family names and ten kinds of home. Each page load draws the town's sixteen households from
 // them once, and they keep those names until the next reload (restarting with R does not rename them).
 const FAMILY_NAMES = [
   'Mansford', 'Talbot', 'Ashcombe', 'Blackwood', 'Carrow', 'Dunmore', 'Eastlake', 'Fairfax', 'Garrick', 'Hartwell',
@@ -103,7 +104,7 @@ let houses, actors, player, talk, clock, nightNum, logs, flashMsg, stats, endTex
 
 const rand = (n) => Math.floor(Math.random() * n);
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const TOWN_NAMES = shuffle(FAMILY_NAMES.slice()).slice(0, 15).map((n) => HOME_KINDS[rand(HOME_KINDS.length)].replace('{n}', n));
+const TOWN_NAMES = shuffle(FAMILY_NAMES.slice()).slice(0, 17).map((n) => HOME_KINDS[rand(HOME_KINDS.length)].replace('{n}', n));
 const cycle = () => TUNE.nightSeconds + TUNE.daySeconds;
 const isNight = () => clock < TUNE.nightSeconds;
 const timeToDawn = () => TUNE.nightSeconds - clock;
@@ -117,7 +118,8 @@ function buildMap() {
   const block = (tx, ty, w, h) => { for (let y = ty; y < ty + h; y++) for (let x = tx; x < tx + w; x++) blocked[y * COLS + x] = 1; };
   block(3, 9, 3, 2);
   houses = [];
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+  // Five houses a row, plus a sixth on the left of the top and bottom rows where the graveyard used to reach.
+  for (let r = 0; r < 3; r++) for (let c = (r === 1 ? 0 : -1); c < 5; c++) {
     const tx = 11 + c * 6, ty = 3 + r * 6;
     block(tx, ty, 3, 2);
     houses.push({
@@ -131,10 +133,11 @@ function buildMap() {
   if (!tombs.length) {
     let seed = 7;
     const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-    while (tombs.length < 16) {
-      const x = 20 + next() * (GRAVE_COLS * T - 40), y = 30 + next() * (ROWS * T - 60);
-      if (x > 2 * T && x < 7 * T && y > 8 * T && y < 13 * T) continue;
-      if (tombs.some((t) => Math.hypot(t.x - x, t.y - y) < 52)) continue;
+    for (let tries = 0; tombs.length < 8 && tries < 5000; tries++) {
+      const x = 18 + next() * (GRAVE_COLS * T - 36), y = GRAVE_TOP + 38 + next() * (GRAVE_BOTTOM - GRAVE_TOP - 46);
+      if (x > 2.4 * T && x < 6.6 * T && y > 8.2 * T && y < 12.6 * T) continue;   // clear of the crypt
+      if (y > 10.6 * T && y < 12.6 * T) continue;                                  // and of the road to its door
+      if (tombs.some((t) => Math.hypot(t.x - x, t.y - y) < 44)) continue;
       tombs.push({ x, y });
     }
   }
@@ -876,7 +879,7 @@ function darkness() {
 function drawWorld() {
   ctx.fillStyle = '#3f5f3c'; ctx.fillRect(0, 0, COLS * T, ROWS * T);
   ctx.fillStyle = '#4a6a46';
-  for (let r = 0; r < 3; r++) ctx.fillRect(GRAVE_COLS * T + 8, (5 + r * 6) * T + 2, COLS * T, T + 20);
+  for (let r = 0; r < 3; r++) ctx.fillRect((r === 1 ? GRAVE_COLS : 4) * T + 8, (5 + r * 6) * T + 2, COLS * T, T + 20);
 
   const items = [];
   for (const t of tombs) items.push({ y: t.y, draw: () => { ctx.fillStyle = '#8b9390'; ctx.fillRect(t.x - 7, t.y - 16, 14, 18); ctx.beginPath(); ctx.arc(t.x, t.y - 16, 7, 0, 7); ctx.fill(); } });
@@ -908,7 +911,7 @@ function drawWorld() {
   const d = darkness();
   if (d > 0) { ctx.fillStyle = `rgba(8,10,40,${d})`; ctx.fillRect(0, 0, COLS * T, ROWS * T); }
 
-  text('GRAVEYARD', GRAVE_COLS * T / 2, 20, '#aab5b0', '12px monospace', 'center');
+  text('GRAVEYARD', GRAVE_COLS * T / 2, GRAVE_TOP + 12, '#aab5b0', '12px monospace', 'center');
   for (const s of [crypt, ...houses]) { const light = buildingLook(s).light; if (light) drawLight(s, light); }
   if (rally || church().state === 'hunter') drawCross(church());
 
