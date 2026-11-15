@@ -396,6 +396,8 @@ function releaseClaim(e) {
 const playerIn = (s) => player.state === 'inside' && player.house === s;
 const denTaken = (s, e) => actors.some((o) => o !== e && o.alive && o.kind === 'vamp' && o.den === s);
 const vampireInside = (s) => actors.some((o) => o.alive && o.kind === 'vamp' && o.inside && o.den === s);
+// One caller to a door at a time: the player cannot knock while a vampire is knocking, nor a vampire while the player is.
+const vampireKnocking = (h) => actors.some((o) => o.alive && o.kind === 'vamp' && o.state === 'knock' && o.target === h);
 
 function chooseDen(e, avoidCrypt) {
   const reach = (s) => travelTime(e, s.door, TUNE.vampireSpeed);
@@ -520,6 +522,7 @@ function updateVampire(e, dt) {
   if (e.state === 'go') {
     if (e.target.state !== 'clean' || e.target.wary) return retarget();
     if (!step(e, TUNE.vampireSpeed, dt)) return;
+    if (talk && talk.house === e.target) return;   // the player is at this door: wait to see how it goes
     if (e.target.state === 'clean' && !e.target.wary) { e.state = 'knock'; e.timer = TUNE.npcKnockSeconds; }
     else retarget();
   } else if (e.state === 'knock') {
@@ -668,6 +671,7 @@ function interact(walkedIn) {
   if (h.state === 'hunter') return flash('The house of worship. You cannot enter.');
   if (h.wary) return flash('They will not open the door again tonight.');
   if (!isNight()) return flash('The sun is up. Find shelter.');
+  if (vampireKnocking(h)) return flash('Another vampire is already at this door.');
   startTalk(h);
 }
 
@@ -1123,6 +1127,7 @@ function doorPrompt() {
   if (h.state === 'cursed') return vampireInside(h) ? `${h.name}. A vampire is inside.` : `${h.name}.  [E] enter`;
   if (h.state === 'hunter') return 'The house of worship.';
   if (h.wary) return `${h.name}. Wary until tomorrow night.`;
+  if (vampireKnocking(h)) return `${h.name}. Another vampire is at the door.`;
   return isNight() ? `${h.name}.  [E] knock` : h.name + '.';
 }
 

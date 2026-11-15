@@ -225,8 +225,7 @@ The target is 60 frames a second at 1080p on a laptop with integrated graphics.
 6. Remaining models, lighting, day and night.
 7. HTML overlays replace the canvas HUD.
 
-## 13. Open questions
+## 13. Settled questions
 
-- Should homes face the nearest road? The simulation puts every door on the south side today. Turning doors means the generator must choose a door tile per home.
-- Should the hill slow walkers? The spec says no, to keep the rules unchanged.
-- Is the 2D view worth keeping after the 3D version ships, or only during the port?
+- Homes always face south side, same as the 2D game.
+- Hill doesn't slow walkers, it's not very steep.
