@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vampire Simulator: 3D asset preview</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f14; font: 13px/1.4 system-ui, "Segoe UI", sans-serif; color: #e8e4da; }
+  canvas { display: block; }
+  #panel { position: fixed; top: 10px; left: 10px; background: rgba(18, 16, 22, .82); border: 1px solid #4b3f2c; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; max-width: 260px; }
+  #panel label { display: flex; gap: 6px; align-items: center; }
+  #panel select { background: #221d27; color: inherit; border: 1px solid #4b3f2c; border-radius: 4px; padding: 2px 4px; }
+  #stats, #hint { color: #a99f8c; font-size: 12px; }
+  #status { color: #f0c36a; }
+  #loading { position: fixed; inset: 0; z-index: 10; background: #0d0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; transition: opacity .6s ease; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #loading h1 { margin: 0; font: 600 28px/1.2 Georgia, "Times New Roman", serif; letter-spacing: .04em; color: #e8e4da; }
+  #loading .bar { width: min(320px, 70vw); height: 6px; background: #221d27; border: 1px solid #4b3f2c; border-radius: 4px; overflow: hidden; }
+  #loading .fill { height: 100%; width: 0; background: #b3141c; transition: width .2s ease; }
+  #loadText { color: #a99f8c; font-size: 12px; min-height: 1.4em; }
+  @media (prefers-reduced-motion: reduce) { #loading, #loading .fill { transition: none; } }
+  #panel .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  #panel button { background: #221d27; color: inherit; border: 1px solid #4b3f2c; border-radius: 4px; padding: 1px 8px; font: inherit; cursor: pointer; }
+  #panel button:focus-visible { outline: 2px solid #f0c36a; }
+  #panel.min { padding: 4px; background: rgba(18, 16, 22, .45); border-color: transparent; }
+  #panel.min > :not(.head), #panel.min strong { display: none; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="loading" role="status" aria-live="polite">
+  <h1>Vampire Simulator</h1>
+  <div class="bar"><div class="fill" id="loadFill"></div></div>
+  <div id="loadText">Loading the town</div>
+</div>
+<div id="panel" class="min">
+  <div class="head"><strong>3D asset preview</strong><button id="panelToggle" type="button" title="Hide or show the settings (H)" aria-expanded="false">Settings</button></div>
+  <label>Angle <input type="range" id="camAngle" min="15" max="89" step="1" value="29" style="flex:1"></label>
+  <label>Zoom <input type="range" id="camZoom" min="15" max="300" step="1" value="48" style="flex:1"></label>
+  <div id="camState" style="color:#a99f8c;font-size:12px"></div>
+  <label>Time <input type="range" id="time" min="0" max="24" step="0.05" value="13" style="flex:1"></label>
+  <label><input type="checkbox" id="timeRun" checked> Run the clock at game speed</label>
+  <div id="timeState" style="color:#a99f8c;font-size:12px"></div>
+  <label>Cross <input type="range" id="cross" min="0" max="100" value="12" style="flex:1"></label>
+  <label><input type="checkbox" id="crossAuto" checked> Cycle the cross</label>
+  <div id="crossState" style="color:#a99f8c;font-size:12px"></div>
+  <label>Crypt <select id="crypt"><option value="empty">Empty</option><option value="orange">Orange</option><option value="red" selected>Red</option></select></label>
+  <div id="hint">WASD or arrows walk the player; the camera follows. Drag to orbit, right-drag to pan, scroll to zoom.</div>
+  <div id="stats"></div>
+  <div id="status">Loading models</div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// World: 1 unit is 1 metre. +X is east, +Z is south, so buildings face +Z like the game's south-facing homes.
+const RIVER_HALF = 6.94, ROAD_HALF = 3.375, BRIDGE_HALF = 3.75, GROUND = 170;
+const M = 'assets/models/', T = 'assets/textures/';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+const MAX_SCALE = Math.min(devicePixelRatio, 1.5);
+let renderScale = Math.min(MAX_SCALE, 1);   // start modest; adaptResolution raises it when frames have headroom
+renderer.setPixelRatio(renderScale);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.5, 900);
+camera.position.set(8, 48 * Math.sin(29 * Math.PI / 180), 4 + 48 * Math.cos(29 * Math.PI / 180));   // 29 degrees down, 48 m from the point looked at
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(8, 0, 4);
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 4;
+controls.maxDistance = 320;
+controls.update();
+
+const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x4a5a34, 1.0);
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
+sun.position.set(-70, 120, 60);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -130, right: 130, top: 130, bottom: -130, near: 10, far: 400 });
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.05;
+scene.add(hemi, sun, sun.target);
+const sunDir = new THREE.Vector3(-70, 120, 60);   // from the subject toward the light; set by the time of day
+let shadowHalf = 0;
+function aimShadows() {
+  // The light rides along with the point the camera looks at, and its shadow box grows with the camera's distance.
+  sun.target.position.copy(controls.target);
+  sun.position.copy(controls.target).add(sunDir);
+  const half = Math.min(140, Math.max(55, Math.round(camera.position.distanceTo(controls.target) * 1.15 / 5) * 5));
+  if (half !== shadowHalf) { shadowHalf = half; Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half }); sun.shadow.camera.updateProjectionMatrix(); }
+}
+
+const texLoader = new THREE.TextureLoader();
+const gltfLoader = new GLTFLoader();
+const loadGLB = (name) => new Promise((ok, fail) => gltfLoader.load(M + name + '.glb', (g) => ok(g.scene), undefined, fail));
+// Textures that replace a glTF material's map must not be flipped.
+const mapTex = (path, srgb = true) => { const t = texLoader.load(T + path); t.flipY = false; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
+const tileTex = (path, repeat, srgb = true) => { const t = texLoader.load(T + path); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+
+function mulberry(seed) { return () => { let t = seed += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry(20261115);
+
+function shadows(obj, cast = true, receive = true) { obj.traverse((o) => { if (o.isMesh) { o.castShadow = cast; o.receiveShadow = receive; } }); return obj; }
+
+// Wrap a model so that it stands on y = 0, is centred in x and z, and has the given size in metres.
+// size: { height } or { width } scales evenly; { width, length } stretches x and z to fit and averages them for y.
+function fit(model, size) {
+  const box = new THREE.Box3().setFromObject(model), s = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  const g = new THREE.Group();
+  model.position.set(-c.x, -box.min.y, -c.z);
+  g.add(model);
+  if (size.width && size.length) { const sx = size.width / s.x, sz = size.length / s.z; g.scale.set(sx, (sx + sz) / 2, sz); }
+  else { const k = size.height ? size.height / s.y : size.width / s.x; g.scale.setScalar(k); }
+  const wrap = new THREE.Group();
+  wrap.add(g);
+  return wrap;
+}
+
+// Radius of a model's footprint: the farthest any vertex in its bottom slice reaches from the centre, in metres.
+// For a tree that is the spread of its roots; for a gravestone, its plinth.
+function footRadius(obj, slice = 0.14) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj), top = box.min.y + (box.max.y - box.min.y) * slice, v = new THREE.Vector3();
+  let r = 0;
+  obj.traverse((o) => { if (!o.isMesh) return; const g = o.geometry.attributes.position; for (let i = 0; i < g.count; i++) { v.fromBufferAttribute(g, i).applyMatrix4(o.matrixWorld); if (v.y <= top) r = Math.max(r, Math.hypot(v.x, v.z)); } });
+  return r;
+}
+const PAWN_R = 0.8;   // the walker is tested as a point, so every obstacle is grown by the walker's own radius
+
+// Give a clone its own materials so a texture swap on one home does not change the others.
+function ownMaterials(obj) { obj.traverse((o) => { if (o.isMesh) o.material = o.material.clone(); }); return obj; }
+function eachMaterial(obj, fn) { obj.traverse((o) => { if (o.isMesh) fn(o.material); }); }
+
+const status = document.getElementById('status');
+const lit = [];   // materials whose glow follows the day and night switch
+
+async function build() {
+  const names = ['house', 'house_door', 'crypt', 'crypt_door', 'church', 'tombstone_a', 'tombstone_b', 'tombstone_c', 'tree_a', 'tree_b', 'bush', 'bridge_span', 'bridge_abutment', 'bridge_pier', 'road_straight', 'river_straight'];
+  const loaded = {};
+  await Promise.all(names.map(async (n) => { loaded[n] = await loadGLB(n); status.textContent = `Loading models (${Object.keys(loaded).length}/${names.length})`; }));
+  status.textContent = '';
+  // The generated materials are marked fully metallic, which renders near black without reflections. Nothing here is metal.
+  Object.values(loaded).forEach((m) => eachMaterial(m, (mat) => { mat.metalness = 0; mat.metalnessMap = null; if (mat.name === 'riverbed') mat.normalScale.set(2.2, 2.2); if (!mat.transparent) mat.roughness = Math.max(mat.roughness, 0.85); }));
+
+  let night = 0;   // 0 in full daylight, 1 in full night; set by the time slider
+
+  // ---- Layout ----
+  // A road is a line through `at` with heading `deg` (0 runs east to west, straight across the river).
+  const roads = [{ at: [0, -12], deg: 0 }, { at: [0, 14], deg: 20 }];
+  const roadDist = (x, z) => Math.min(...roads.map((r) => { const a = r.deg * Math.PI / 180; return Math.abs((x - r.at[0]) * Math.sin(a) - (z - r.at[1]) * Math.cos(a)); }));
+  const homes = [
+    [20, -30, 'yellow'], [38, -31, 'yellow'], [24, 4, 'red'], [44, 5, 'yellow'], [68, 4, 'clean'], [30, 38, 'decayedOrange'], [52, 46, 'yellow'], [72, 26, 'decayed', true],
+    [-20, -30, 'yellow'], [-40, -32, 'clean'], [-22, 22, 'decayedRed'], [-24, 46, 'decayed'], [-78, 10, 'decayedOrange'],
+  ];
+  const churchAt = [60, -42], HILL = 2;
+  const yard = { x: -54, z: 32, w: 32, d: 28 };
+
+  // ---- Terrain height ----
+  // Rolling ground: broad swells of a few metres with smaller bumps on top, sinking to the river banks. The house of
+  // worship stands on a 2 m hill and the graveyard on a lower, wider rise. Roads run on raised embankments that follow
+  // the land, level across their width. The ground is level under every building.
+  const sstep = (a, b, t) => { const k = Math.min(1, Math.max(0, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
+  const hash2 = (ix, iz) => { let h = Math.imul(ix, 374761393) ^ Math.imul(iz, 668265263) ^ 0x5bd1e995; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+  const vnoise = (x, z) => { const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, u = fx * fx * (3 - 2 * fx), w = fz * fz * (3 - 2 * fz); return (hash2(ix, iz) * (1 - u) + hash2(ix + 1, iz) * u) * (1 - w) + (hash2(ix, iz + 1) * (1 - u) + hash2(ix + 1, iz + 1) * u) * w; };
+  const YARD_RISE = 1.3, MOUND = 1.25, CROWN = 0.45;
+  const valley = (x) => sstep(RIVER_HALF + 0.6, RIVER_HALF + 18, Math.abs(x));
+  const swell = (x, z) => ((vnoise(x / 58 + 3, z / 58) - 0.5) * 5.2 + (vnoise(x / 24 + 9, z / 24 + 4) - 0.5) * 1.8 + 0.5) * valley(x);
+  const bumps = (x, z) => (vnoise(x / 9 + 2, z / 9 + 7) - 0.5) * 0.45 * valley(x);
+  const rises = (x, z) => HILL * (1 - sstep(6, 20.5, Math.hypot(x - churchAt[0], z - churchAt[1]))) + YARD_RISE * (1 - sstep(15, 34, Math.hypot(x - yard.x, z - yard.z)));
+  const base = (x, z) => swell(x, z) + bumps(x, z) + rises(x, z);
+  // Height of the road surface at a point: the smooth land under the nearest point of the road's centre line, plus the mound.
+  function roadTop(x, z) {
+    let best = Infinity, top = 0;
+    for (const r of roads) {
+      const a = r.deg * Math.PI / 180, dx = Math.cos(a), dz = Math.sin(a), t = (x - r.at[0]) * dx + (z - r.at[1]) * dz;
+      const cx = r.at[0] + dx * t, cz = r.at[1] + dz * t, d = Math.hypot(x - cx, z - cz);
+      if (d < best) { best = d; top = swell(cx, cz) + rises(cx, cz) + MOUND * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(cx)); }
+    }
+    return top;
+  }
+  // The road surface arcs across its width: highest on the centre line, falling to the edges. It flattens at the bridges.
+  const crown = (x, z) => { const d = roadDist(x, z) / ROAD_HALF; return d >= 1 ? 0 : CROWN * (1 - d * d) * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(x)); };
+  const pads = [...homes.map(([x, z]) => ({ x, z, r: 6.5, b: 6, h: base(x, z) })), { x: churchAt[0], z: churchAt[1], r: 7, b: 6, h: base(churchAt[0], churchAt[1]) }, { x: yard.x, z: yard.z, r: 18, b: 9, h: base(yard.x, yard.z) }];
+  function heightAt(x, z) {
+    const bank = Math.abs(x);
+    if (bank < RIVER_HALF + 0.6) return -0.45 * (1 - sstep(RIVER_HALF - 1.0, RIVER_HALF + 0.6, bank)) + 0.16 * (vnoise(x * 0.8, z * 0.8) - 0.5) * (1 - sstep(RIVER_HALF + 0.2, RIVER_HALF + 0.6, bank));
+    let h = base(x, z);
+    for (const p of pads) { const w = 1 - sstep(p.r, p.r + p.b, Math.hypot(x - p.x, z - p.z)); if (w > 0) h += (p.h - h) * w; }
+    // embankment: the ground rises to just under the road surface, with shoulders sloping away over 4 m
+    const rw = 1 - sstep(ROAD_HALF + 0.3, ROAD_HALF + 6.5, roadDist(x, z));
+    if (rw > 0) h += (roadTop(x, z) - 0.13 * sstep(RIVER_HALF + 0.6, RIVER_HALF + 3, bank) - h) * rw;
+    return h;
+  }
+
+  // ---- Ground ----
+  const TILE = 2.6;   // metres per texture repeat: small, so blades are in scale with the buildings
+  const yardMap = { value: tileTex('ground/graveyard_basecolor.jpg', 1) }, yardBox = { value: new THREE.Vector4(yard.x, yard.z, yard.w / 2, yard.d / 2) };
+  const roadLines = { value: roads.map((r) => { const a = r.deg * Math.PI / 180; return new THREE.Vector4(r.at[0], r.at[1], Math.cos(a), Math.sin(a)); }) };
+  const roadMap = { value: tileTex('ground/road_basecolor.jpg', 1) };
+  function breakTiling(mat) {
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uYardMap = yardMap; sh.uniforms.uYard = yardBox; sh.uniforms.uRoads = roadLines; sh.uniforms.uRoadMap = roadMap;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+varying vec3 vWPos;`).replace('#include <begin_vertex>', `#include <begin_vertex>
+vWPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vWPos;
+uniform sampler2D uYardMap;
+uniform vec4 uYard;
+uniform vec4 uRoads[2];
+uniform sampler2D uRoadMap;
+float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), f.x), f.y); }`).replace('#include <map_fragment>', `
+// Fine grass at true scale, with the repeat hidden: each noise cell samples the tile at its own offset, and
+// neighbouring cells blend. Broad patches of lighter, darker and drier grass go on top.
+vec2 gDx = dFdx(vMapUv), gDy = dFdy(vMapUv);
+float gL = gNoise(vWPos.xz * 0.45) * 8.0, gI = floor(gL), gF = fract(gL);
+vec3 gA = textureGrad(map, vMapUv + sin(vec2(3.0, 7.0) * gI), gDx, gDy).rgb;
+vec3 gB = textureGrad(map, vMapUv + sin(vec2(3.0, 7.0) * (gI + 1.0)), gDx, gDy).rgb;
+vec3 gC = mix(gA, gB, smoothstep(0.2, 0.8, gF - 0.1 * ((gA.r + gA.g + gA.b) - (gB.r + gB.g + gB.b))));
+gC *= 0.74 + 0.36 * gNoise(vWPos.xz * 0.028) + 0.16 * gNoise(vWPos.xz * 0.11 + 5.0);
+gC = mix(gC, gC * vec3(1.16, 1.04, 0.72), 0.55 * smoothstep(0.45, 0.9, gNoise(vWPos.xz * 0.055 + 3.0)));
+// damp earth where the grass meets the river
+float gMud = 1.0 - smoothstep(${(RIVER_HALF + 0.15).toFixed(2)}, ${(RIVER_HALF + 1.5).toFixed(2)} + 1.2 * gNoise(vWPos.xz * 0.7), abs(vWPos.x));
+gC = mix(gC, vec3(0.19, 0.14, 0.085) * (0.75 + 0.5 * gNoise(vWPos.xz * 3.0)), 0.9 * gMud);
+// road shoulders: trampled earth beside the road, thinning into grass down the bank
+float gRd = min(abs((vWPos.x - uRoads[0].x) * uRoads[0].w - (vWPos.z - uRoads[0].y) * uRoads[0].z), abs((vWPos.x - uRoads[1].x) * uRoads[1].w - (vWPos.z - uRoads[1].y) * uRoads[1].z));
+float gSh = (1.0 - smoothstep(2.6, 4.9 + 1.5 * gNoise(vWPos.xz * 0.8) + 0.7 * gNoise(vWPos.xz * 3.1), gRd)) * smoothstep(8.5, 12.0, abs(vWPos.x));
+vec2 gWx = dFdx(vWPos.xz), gWy = dFdy(vWPos.xz);
+if (gSh > 0.002) gC = mix(gC, textureGrad(uRoadMap, vWPos.xz / 3.0, gWx / 3.0, gWy / 3.0).rgb * (0.62 + 0.3 * gNoise(vWPos.xz * 1.7)), gSh);
+// graveyard turf: a rounded patch with a ragged edge, on the rise the crypt stands on
+vec2 gYd = abs(vWPos.xz - uYard.xy) - uYard.zw + 5.0;
+float gYs = length(max(gYd, 0.0)) + min(max(gYd.x, gYd.y), 0.0) - 5.0 + 2.2 * (gNoise(vWPos.xz * 0.5) - 0.5);
+float gYm = 1.0 - smoothstep(-0.8, 0.8, gYs);
+if (gYm > 0.002) {
+// Each noise cell samples the turf tile at its own offset, and a second layer turned a quarter turn at another
+// scale is mixed in, so neither the repeat nor the tile's strand direction lines up into bands.
+vec2 yUv = vWPos.xz / 3.2, yDx = gWx / 3.2, yDy = gWy / 3.2;
+float yL = gNoise(vWPos.xz * 0.38 + 21.0) * 8.0, yI = floor(yL), yF = fract(yL);
+vec3 yA = textureGrad(uYardMap, yUv + sin(vec2(3.0, 7.0) * yI), yDx, yDy).rgb;
+vec3 yB = textureGrad(uYardMap, yUv + sin(vec2(3.0, 7.0) * (yI + 1.0)), yDx, yDy).rgb;
+vec3 gTurf = mix(yA, yB, smoothstep(0.2, 0.8, yF));
+float yL2 = gNoise(vWPos.xz * 0.31 + 47.0) * 8.0, yI2 = floor(yL2), yF2 = fract(yL2);
+vec2 yUv2 = vec2(-yUv.y, yUv.x) * 0.73;
+vec3 yC = mix(textureGrad(uYardMap, yUv2 + sin(vec2(5.0, 2.0) * yI2), yDy * 0.73, yDx * 0.73).rgb, textureGrad(uYardMap, yUv2 + sin(vec2(5.0, 2.0) * (yI2 + 1.0)), yDy * 0.73, yDx * 0.73).rgb, smoothstep(0.2, 0.8, yF2));
+gTurf = mix(gTurf, yC, 0.3 + 0.4 * gNoise(vWPos.xz * 0.21 + 3.0));
+gTurf *= 0.86 + 0.22 * gNoise(vWPos.xz * 0.6 + 9.0);
+gC = mix(gC, gTurf * (0.85 + 0.3 * gNoise(vWPos.xz * 0.09)), gYm);
+}
+diffuseColor.rgb *= gC;`);
+    };
+    return mat;
+  }
+  const grass = (rep) => breakTiling(new THREE.MeshStandardMaterial({ map: tileTex('ground/grass_basecolor.jpg', rep), normalMap: tileTex('ground/grass_normal.jpg', rep, false), roughness: 1 }));
+  for (const side of [-1, 1]) {
+    // Each bank's ground starts 1 m inside the bank line, under the pebbles, with vertices packed closer near the river.
+    const x0 = RIVER_HALF - 1.0, w = GROUND - x0;
+    const geo = new THREE.PlaneGeometry(w, GROUND * 2, Math.round(w / 1.6), Math.round(GROUND * 2 / 1.5));
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position, uv = geo.attributes.uv;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getX(i) / w + 0.5, x = side * (x0 + w * (0.3 * u + 0.7 * u * u)), z = pos.getZ(i);
+      pos.setXYZ(i, x, heightAt(x, z), z); uv.setXY(i, x / TILE, z / TILE);
+    }
+    if (side < 0) geo.index.array.reverse();   // mirroring x flips the winding
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, grass(1)); m.receiveShadow = true;
+    scene.add(m);
+  }
+
+  // ---- River: one 6 m module repeated along the river line ----
+  for (let z = -GROUND + 3; z < GROUND; z += 6) { const r = loaded.river_straight.clone(); r.position.set(0, 0, z); shadows(r, false, true); scene.add(r); }
+
+  // ---- Roads and bridges ----
+  eachMaterial(loaded.road_straight, (m) => {
+    m.transparent = true; m.depthWrite = false;
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uRoads = roadLines;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+varying vec3 vRoadPos;`).replace('#include <begin_vertex>', `#include <begin_vertex>
+vRoadPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vRoadPos;
+uniform vec4 uRoads[2];
+float rHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float rNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(rHash(i), rHash(i + vec2(1, 0)), f.x), mix(rHash(i + vec2(0, 1)), rHash(i + vec2(1, 1)), f.x), f.y); }`).replace('#include <map_fragment>', `#include <map_fragment>
+float rD = min(abs((vRoadPos.x - uRoads[0].x) * uRoads[0].w - (vRoadPos.z - uRoads[0].y) * uRoads[0].z), abs((vRoadPos.x - uRoads[1].x) * uRoads[1].w - (vRoadPos.z - uRoads[1].y) * uRoads[1].z));
+diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 * rNoise(vRoadPos.xz * 3.1), 3.25, rD);`);
+    };
+  });
+  const span = fit(loaded.bridge_span, { width: BRIDGE_HALF * 2, length: 3 });
+  const abut = fit(loaded.bridge_abutment, { width: BRIDGE_HALF * 2, length: 3 });
+  const pier = fit(loaded.bridge_pier, { width: 7 });
+  // Which end of the abutment is the low one? Compare mean height of the two halves along its length.
+  abut.updateMatrixWorld(true);
+  let lo = [0, 0], cnt = [0, 0]; const v = new THREE.Vector3();
+  abut.traverse((o) => { if (!o.isMesh) return; const p = o.geometry.attributes.position; for (let i = 0; i < p.count; i += 7) { v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); const k = v.z > 0 ? 1 : 0; lo[k] += v.y; cnt[k]++; } });
+  const lowIsPlusZ = lo[1] / cnt[1] < lo[0] / cnt[0];
+  const deckY = -0.25;
+  const abutY = deckY - 0.06 * abut.children[0].scale.y;   // the ramp's low edge sinks 0.06 model units below the span's base
+  roads.forEach((road, ri) => {
+    const a = road.deg * Math.PI / 180, dx = Math.cos(a), dz = Math.sin(a);
+    const yaw = Math.atan2(dx, dz);            // module length runs along local +Z
+    const sin = Math.abs(dx);                  // of the angle between road and river
+    const half = (RIVER_HALF + BRIDGE_HALF * Math.sqrt(1 - sin * sin)) / sin + 0.94;
+    const spans = Math.ceil((2 * half - 6) / 3), total = spans * 3 + 6;
+    const at = (s, y = 0) => new THREE.Vector3(road.at[0] + dx * s, y, road.at[1] + dz * s);
+    for (let s = -GROUND * 1.2; s < GROUND * 1.2; s += 3) {
+      const mid = s + 1.5;
+      if (Math.abs(mid) < total / 2 - 3) continue;   // the deck takes over here; the road runs on under the ramps
+      const p = at(mid, ri * 0.012);
+      if (Math.abs(p.x) > GROUND || Math.abs(p.z) > GROUND) continue;
+      const r = loaded.road_straight.clone(); r.position.copy(p); r.rotation.y = yaw; r.updateMatrixWorld(true);
+      r.traverse((o) => {   // lift every vertex onto the embankment, so the module follows the land
+        if (!o.isMesh) return;
+        o.geometry = o.geometry.clone();
+        const g = o.geometry.attributes.position, inv = o.matrixWorld.clone().invert();
+        for (let i = 0; i < g.count; i++) { v.fromBufferAttribute(g, i).applyMatrix4(o.matrixWorld); v.y += roadTop(v.x, v.z) + crown(v.x, v.z); v.applyMatrix4(inv); g.setXYZ(i, v.x, v.y, v.z); }
+        o.geometry.computeVertexNormals(); o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox();
+      });
+      shadows(r, false, true); r.traverse((o) => { o.renderOrder = 1; }); scene.add(r);
+    }
+    for (let i = 0; i < spans; i++) {
+      const b = span.clone(); b.position.copy(at(-total / 2 + 3 + i * 3 + 1.5, deckY)); b.rotation.y = yaw; shadows(b); scene.add(b);
+      const overWater = Math.abs(at(-total / 2 + 3 + i * 3, 0).x) < RIVER_HALF - 1.5;
+      if (i > 0 && i % 2 === 0 && overWater || (spans <= 4 && i === Math.floor(spans / 2))) {
+        const p = pier.clone(); const box = new THREE.Box3().setFromObject(p);
+        p.position.copy(at(-total / 2 + 3 + i * 3, deckY - (box.max.y - box.min.y) + 0.1)); p.rotation.y = yaw; shadows(p); scene.add(p);
+      }
+    }
+    for (const end of [-1, 1]) {
+      const b = abut.clone(); b.position.copy(at(end * (total / 2 - 1.5), abutY));
+      // the low end must point away from the river
+      b.rotation.y = yaw + ((end > 0) === lowIsPlusZ ? 0 : Math.PI); shadows(b); scene.add(b);
+    }
+  });
+
+  // ---- Homes ----
+  const mask = mapTex('house/house_window_mask.png', false);
+  const variants = {
+    clean: { map: null },
+    yellow: { map: mapTex('house/house_clean_yellow.png'), glow: 0xffc24a },
+    red: { map: mapTex('house/house_clean_red.png'), glow: 0xff2a1e },
+    decayed: { map: mapTex('house/house_decayed.png') },
+    decayedOrange: { map: mapTex('house/house_decayed_orange.png'), glow: 0xff7a1a },
+    decayedRed: { map: mapTex('house/house_decayed_red.png'), glow: 0xff2a1e },
+  };
+  const HOUSE_SCALE = 7;   // model units to metres: about 7 m wide
+  function home(x, z, kind, doorOpen = false) {
+    const unit = new THREE.Group();      // model space: the house model is about 1 unit across, centred on its origin
+    const h = ownMaterials(loaded.house.clone());
+    const vr = variants[kind];
+    eachMaterial(h, (m) => {
+      if (vr.map) m.map = vr.map;
+      if (vr.glow) { m.emissiveMap = mask; m.emissive = new THREE.Color(vr.glow); m.emissiveIntensity = 1; lit.push(m); }
+      m.needsUpdate = true;
+    });
+    unit.add(h);
+    // Door: scaled to the doorway and hung on a pivot at its left edge so it can swing open.
+    const hinge = new THREE.Group(); hinge.position.set(-0.1, -0.25, 0.352);
+    const d = loaded.house_door.clone(); d.scale.setScalar(0.33); d.position.set(0.1, 0, 0);
+    hinge.add(d); if (doorOpen) hinge.rotation.y = -1.9;
+    unit.add(hinge);
+    unit.scale.setScalar(HOUSE_SCALE); unit.position.set(x, heightAt(x, z) + 0.45 * HOUSE_SCALE, z);
+    shadows(unit); scene.add(unit);
+    return unit;
+  }
+  homes.forEach((h) => home(...h));
+
+  // ---- House of worship on its hill ----
+  const church = fit(loaded.church, { width: 9.5 }); church.position.set(churchAt[0], heightAt(churchAt[0], churchAt[1]) - 0.22, churchAt[1]); shadows(church); scene.add(church);
+  // The cross is part of the church mesh, so it glows through a shader mask on its position in the model:
+  // everything above the roof ridge on the centre line. A soft sprite stands in for bloom.
+  const churchMask = { value: mapTex('church/church_window_mask.png', false) };
+  const crossGlow = { value: new THREE.Color(0, 0, 0) }, crossStone = { value: new THREE.Color(1, 1, 1) }, churchWin = { value: new THREE.Color(0, 0, 0) };
+  eachMaterial(loaded.church, (m) => {
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uCross = crossGlow; sh.uniforms.uCrossStone = crossStone; sh.uniforms.uChurchWin = churchWin; sh.uniforms.uChurchMask = churchMask;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+varying vec3 vModelPos;`).replace('#include <begin_vertex>', `#include <begin_vertex>
+vModelPos = position;`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vModelPos;
+uniform vec3 uCross;
+uniform vec3 uCrossStone;
+uniform vec3 uChurchWin;
+uniform sampler2D uChurchMask;`).replace('#include <color_fragment>', `#include <color_fragment>
+float crossMask = 0.0;
+#ifdef USE_MAP
+{ vec3 cs = sampledDiffuseColor.rgb; float csMax = max(cs.r, max(cs.g, cs.b)), csMin = min(cs.r, min(cs.g, cs.b));
+  float pale = smoothstep(0.62, 0.8, csMin / max(csMax, 0.001)) * smoothstep(0.18, 0.32, csMax);   // grey-white stone, not gold or wood
+  crossMask = max(pale, smoothstep(0.35, 0.37, vModelPos.y)) * smoothstep(0.27, 0.3, vModelPos.y) * step(abs(vModelPos.x), 0.1) * step(0.18, vModelPos.z) * step(vModelPos.z, 0.37); }
+#endif
+diffuseColor.rgb *= mix(vec3(1.0), uCrossStone, crossMask);`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+totalEmissiveRadiance += uCross * crossMask;
+// Window glass, from a mask texture baked from the glass itself (arched panes, tracery left dark).
+#ifdef USE_MAP
+totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
+#endif`);
+    };
+  });
+  const halo = document.createElement('canvas'); halo.width = halo.height = 128;
+  { const g = halo.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
+  const crossHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(halo), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  crossHalo.position.set(0, 0.42, 0.262); loaded.church.add(crossHalo);
+  const crossLamp = new THREE.PointLight(0xffffff, 0, 30, 1.8); crossLamp.position.set(0, 0.47, 0.3); loaded.church.add(crossLamp);
+  // Slider: 0 is the final swarm (bright red). 1 to 100 is town health falling, from blazing white down to dull grey.
+  const crossSlider = document.getElementById('cross'), crossAuto = document.getElementById('crossAuto'), crossState = document.getElementById('crossState');
+  const CROSS = { red: new THREE.Color(1, 0, 0), white: new THREE.Color(1, 1, 1), redStone: new THREE.Color(0.9, 0.05, 0.04), redHalo: new THREE.Color(1, 0.08, 0.05), redLamp: new THREE.Color(1, 0.1, 0.06), window: new THREE.Color(1.0, 0.6, 0.13) };
+  let crossLabel = '';
+  function setCross(v) {
+    const red = v < 1, t = red ? 0 : (v - 1) / 99, strength = red ? 8 : 8 * Math.pow(0.3 / 8, t);   // the spec's emission strength, 8 down to 0.3
+    const live = red ? 1 : Math.pow(1 - t, 1.4);   // what the eye should read: 1 blazing, 0 dead
+    const col = red ? CROSS.red : CROSS.white;
+    // Red stays below 1 so tone mapping cannot bleach it, and the stone itself is tinted red.
+    crossGlow.value.copy(col).multiplyScalar(red ? 0.6 : 2.6 * live);
+    crossStone.value.copy(red ? CROSS.redStone : CROSS.white).multiplyScalar(red ? 1 : 0.28 + 0.72 * live);
+    crossHalo.material.color.copy(red ? CROSS.redHalo : col);
+    crossHalo.material.opacity = (red ? 0.4 : 0.95) * live; crossHalo.scale.setScalar(0.1 + 0.42 * live);
+    // Windows: a creeping red for the final swarm; otherwise the same warm yellow as a healthy home, stronger at night.
+    churchWin.value.copy(red ? CROSS.red : CROSS.window).multiplyScalar(red ? 0.7 : 0.62 + 0.12 * night);
+    const lampK = (red ? 1.0 : 8 * live);
+    crossLamp.color.copy(red ? CROSS.redLamp : col); crossLamp.intensity = lampK * (1.5 + 5 * night);
+    const label = red ? 'Final swarm: red, strength 8' : `Town health ${Math.round((1 - t) * 100)}%: white, strength ${strength.toFixed(1)}`;
+    if (label !== crossLabel) crossState.textContent = crossLabel = label;
+  }
+  crossSlider.addEventListener('input', () => { crossAuto.checked = false; setCross(+crossSlider.value); });
+  let crossV = 12; window.stepCross = (dt) => { if (!crossAuto.checked) { crossV = +crossSlider.value; return; } crossV += dt * 9; if (crossV > 115) crossV = -14; const v = Math.max(0, Math.min(100, crossV)); crossSlider.value = v; setCross(v); };
+
+  // ---- Graveyard: turf patch, crypt with its door, tombstones ----
+
+  const CRYPT_SCALE = 7;
+  const cryptUnit = new THREE.Group();
+  const crypt = ownMaterials(loaded.crypt.clone()); cryptUnit.add(crypt);
+  const cd = loaded.crypt_door.clone(); cd.scale.setScalar(0.38); cd.position.set(0, -0.28, 0.3); cryptUnit.add(cd);
+  // Glow seen through the door's grille: a bright panel inside the door's thickness, behind the lattice.
+  const grille = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: false }));
+  grille.position.set(0, 0.205, 0.0); grille.visible = false; cd.add(grille);
+  cryptUnit.scale.setScalar(CRYPT_SCALE); cryptUnit.position.set(yard.x, heightAt(yard.x, yard.z - 4) + 0.498 * CRYPT_SCALE - 0.08, yard.z - 4); shadows(cryptUnit); scene.add(cryptUnit);
+  grille.castShadow = false;
+  const cryptLamp = new THREE.PointLight(0xff7a1a, 0, 9, 2); cryptLamp.position.set(yard.x, heightAt(yard.x, yard.z) + 2.2, yard.z - 4 + 0.36 * CRYPT_SCALE + 1.2); scene.add(cryptLamp);
+  const cryptTex = { empty: null, orange: mapTex('crypt/crypt_orange.png'), red: mapTex('crypt/crypt_red.png') };
+  const cryptColor = { orange: 0xff7a1a, red: 0xff2218 };
+  let cryptBase = null, cryptKind = 'empty';   // cryptKind is what the material shows now eachMaterial(crypt, (m) => { cryptBase = m.map; });
+  function setCrypt(kind) {
+    if (kind !== cryptKind) { cryptKind = kind; eachMaterial(crypt, (m) => { m.map = cryptTex[kind] || cryptBase; }); }
+    grille.visible = kind !== 'empty';
+    if (grille.visible) { grille.material.color.set(cryptColor[kind]).multiplyScalar(1.4 + 0.8 * night); cryptLamp.color.set(cryptColor[kind]); }
+    cryptLamp.intensity = kind === 'empty' ? 0 : 2.5 + 4.5 * night;
+  }
+  const cryptSelect = document.getElementById('crypt');
+  cryptSelect.addEventListener('change', () => setCrypt(cryptSelect.value));
+
+  const tombs = [];   // collision circles, so walkers go round the graves
+  const stones = [fit(loaded.tombstone_a, { height: 1.6 }), fit(loaded.tombstone_b, { height: 1.9 }), fit(loaded.tombstone_c, { height: 1.5 })];
+  const stoneFoot = stones.map((m) => footRadius(m, 0.2));
+  for (let gx = 0; gx < 6; gx++) for (let gz = 0; gz < 5; gz++) {
+    const x = yard.x - 12.5 + gx * 5 + (rnd() - 0.5) * 1.6, z = yard.z - 10 + gz * 5 + (rnd() - 0.5) * 1.6;
+    if (Math.abs(x - yard.x) < 5 && z < yard.z + 7) continue;   // keep the crypt and the path to its door clear
+    if (rnd() < 0.2) continue;
+    const stoneK = Math.floor(rnd() * 3), s = stones[stoneK].clone(); s.position.set(x, heightAt(x, z) - 0.03, z); tombs.push({ x, z, r: 0, k: stoneK }); s.rotation.y = (rnd() - 0.5) * 0.5; s.scale.multiplyScalar(0.9 + rnd() * 0.25); tombs[tombs.length - 1].r = stoneFoot[stoneK] * s.scale.x + PAWN_R * 0.75; shadows(s); scene.add(s);
+  }
+
+  // ---- Trees and bushes: a few in town, most in the outskirts ----
+  const plants = [[fit(loaded.tree_a, { height: 6.5 }), 3.2], [fit(loaded.tree_b, { height: 8 }), 2.6], [fit(loaded.bush, { height: 1.4 }), 1.2]];
+  const taken = [...homes.map(([x, z]) => [x, z, 8]), [churchAt[0], churchAt[1], 21], [yard.x, yard.z, 20]];
+  const free = (x, z, r) => Math.abs(x) > RIVER_HALF + 2 + r && roadDist(x, z) > ROAD_HALF + 1.5 + r && taken.every(([tx, tz, tr]) => Math.hypot(x - tx, z - tz) > tr + r);
+  const trunks = [];   // collision circles for tree trunks; bushes can be walked through
+  const plantFoot = plants.map(([m]) => footRadius(m));
+  let placed = 0;
+  for (let i = 0; i < 2400 && placed < 190; i++) {
+    const x = (rnd() * 2 - 1) * (GROUND - 6), z = (rnd() * 2 - 1) * (GROUND - 6);
+    const inTown = Math.abs(x) < 86 && Math.abs(z) < 54;
+    if (inTown && rnd() > 0.1) continue;
+    const pick = rnd(), k = pick < 0.34 ? 0 : pick < 0.62 ? 1 : 2;
+    if (!free(x, z, plants[k][1])) continue;
+    const p = plants[k][0].clone(); p.position.set(x, heightAt(x, z) - 0.06, z); p.rotation.y = rnd() * Math.PI * 2; p.scale.multiplyScalar(0.8 + rnd() * 0.45); shadows(p); scene.add(p);
+    taken.push([x, z, plants[k][1]]); placed++;
+    if (k < 2) trunks.push({ x, z, r: plantFoot[k] * p.scale.x + PAWN_R });   // roots included
+  }
+
+  // ---- Player pawn and follow camera ----
+  // WASD or the arrow keys walk the pawn at the game's player speed (150 px/s, which is about 14 m/s here). North is
+  // up the screen, as in the game. The camera keeps whatever angle and zoom it has and eases after the pawn the way
+  // the 2D game's camera does (12% of the gap per frame at 60 fps).
+  const pawn = new THREE.Group();
+  { const black = new THREE.MeshStandardMaterial({ color: 0x17141a, roughness: 0.45 }), redTrim = new THREE.MeshStandardMaterial({ color: 0xb3141c, roughness: 0.5 });
+    const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.y = y; m.castShadow = true; pawn.add(m); };
+    add(new THREE.CylinderGeometry(0.75, 0.85, 0.3, 24), black, 0.15); add(new THREE.CylinderGeometry(0.62, 0.62, 0.1, 24), redTrim, 0.35);
+    add(new THREE.CylinderGeometry(0.28, 0.6, 1.5, 24), black, 1.15); add(new THREE.CylinderGeometry(0.42, 0.42, 0.09, 24), redTrim, 1.92); add(new THREE.SphereGeometry(0.42, 24, 16), black, 2.3); }
+  const walker = { x: yard.x, z: yard.z - 4 + 0.33 * CRYPT_SCALE + 2.2 };   // starts on the crypt's doorstep
+  const SPEED = 150 * 3 / 32, TOWN_X = 92, TOWN_Z = 60;   // walkable area: past the southernmost doors, with room to walk round every home
+  const solids = [...homes.map(([x, z]) => ({ x, z, r: 4.7 })), { x: churchAt[0], z: churchAt[1], r: 6.2 }, { x: yard.x, z: yard.z - 4, r: 3.5 }, ...tombs, ...trunks];
+  window.sceneDebug = { trunks, tombs, walker };   // for checking collisions from the console
+  const onBridge = (x, z) => Math.abs(x) < RIVER_HALF + 3 && roadDist(x, z) < BRIDGE_HALF - 0.9;
+  const canStand = (x, z) => Math.abs(x) <= TOWN_X && Math.abs(z) <= TOWN_Z && (Math.abs(x) > RIVER_HALF + 0.4 || onBridge(x, z)) && solids.every((o) => Math.hypot(x - o.x, z - o.z) > o.r);
+  const groundY = (x, z) => onBridge(x, z) ? Math.max(heightAt(x, z), 0.42 * sstep(RIVER_HALF + 3, RIVER_HALF, Math.abs(x)) + 0.02) : roadDist(x, z) < ROAD_HALF ? roadTop(x, z) + crown(x, z) + 0.04 : heightAt(x, z);
+  pawn.position.set(walker.x, groundY(walker.x, walker.z), walker.z); scene.add(pawn);
+  const keys = new Set(), MOVE = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
+  addEventListener('keydown', (e) => { if (MOVE.includes(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) { keys.add(e.code); e.preventDefault(); following = true; } });
+  addEventListener('keyup', (e) => keys.delete(e.code));
+  addEventListener('blur', () => keys.clear());
+  let following = true;   // the camera starts on the player, as the game does
+  const has = (...c) => c.some((k) => keys.has(k));
+  window.stepWalk = (dt) => {
+    const dx = (has('KeyD', 'ArrowRight') ? 1 : 0) - (has('KeyA', 'ArrowLeft') ? 1 : 0), dz = (has('KeyS', 'ArrowDown') ? 1 : 0) - (has('KeyW', 'ArrowUp') ? 1 : 0);
+    if (dx || dz) {
+      const step = SPEED * Math.min(dt, 0.05) / Math.hypot(dx, dz), nx = walker.x + dx * step, nz = walker.z + dz * step;
+      if (canStand(nx, nz)) { walker.x = nx; walker.z = nz; } else if (canStand(nx, walker.z)) walker.x = nx; else if (canStand(walker.x, nz)) walker.z = nz;   // slide along obstacles
+      pawn.rotation.y = Math.atan2(dx, dz);
+    }
+    pawn.position.set(walker.x, groundY(walker.x, walker.z) + (dx || dz ? 0.06 * Math.abs(Math.sin(performance.now() / 70)) : 0), walker.z);
+    if (!following) return;
+    const k = 1 - Math.pow(1 - 0.12, Math.min(dt, 0.1) * 60);
+    const mx = (walker.x - controls.target.x) * k, mz = (walker.z - controls.target.z) * k, my = (pawn.position.y - controls.target.y) * k;
+    controls.target.x += mx; controls.target.z += mz; controls.target.y += my;
+    camera.position.x += mx; camera.position.z += mz; camera.position.y += my;
+  };
+  // Panning by hand lets go of the pawn until the next key press.
+  renderer.domElement.addEventListener('pointerdown', (e) => { if (e.button === 2 || e.shiftKey) following = false; });
+
+  // ---- Time of day ----
+  // One light plays the sun by day and the moon by night. Each rises in the east (+X), climbs toward the south
+  // (+Z, the camera's side) and sets in the west. Colours are keyed on how high the sun stands.
+  const timeSlider = document.getElementById('time'), timeRun = document.getElementById('timeRun'), timeState = document.getElementById('timeState');
+  const C = (h) => new THREE.Color(h), clamp01 = (k) => Math.min(1, Math.max(0, k));
+  const SKY = { day: C(0x9fc4e8), dusk: C(0xe48a5c), night: C(0x1f2d5c) };
+  const SUN = { high: C(0xfff3de), low: C(0xff8a3a), moon: C(0xa9bcff) };
+  const AMB = { day: C(0xcfe3ff), night: C(0x9db0f2), dusk: C(0xffb48a), groundDay: C(0x4a5a34), groundNight: C(0x3d4d74) };
+  const sky = new THREE.Color();
+  scene.background = sky; scene.fog = new THREE.Fog(0x000000, 230, 430);
+  let timeLabel = '';
+  function setTime(h) {
+    const sunAng = (h - 6) / 12 * Math.PI, sunUp = Math.sin(sunAng);            // 1 at noon, -1 at midnight
+    const moonUp = -sunUp;   // the moon is opposite the sun
+    night = 1 - sstep(-0.18, 0.16, sunUp);
+    const twilight = Math.max(0, 1 - Math.abs(sunUp) / 0.32);
+    // light body: sun while it is up, else moon
+    const useSun = sunUp > 0, ang = useSun ? sunAng : sunAng - Math.PI, up = Math.max(0.14, useSun ? sunUp : moonUp);
+    const flat = Math.sqrt(Math.max(0, 1 - up * up));
+    sunDir.set(Math.cos(ang) * flat * 200, up * 200, (0.35 + 0.45 * up) * 120);
+    if (useSun) { sun.color.copy(SUN.low).lerp(SUN.high, clamp01(sunUp / 0.45)); sun.intensity = 0.9 + 1.8 * sstep(0, 0.3, sunUp); }
+    else { sun.color.copy(SUN.moon); sun.intensity = 1.2 + 1.0 * sstep(0, 0.3, moonUp); }
+    // sky and ambient
+    sky.copy(SKY.day).lerp(SKY.night, clamp01(night)).lerp(SKY.dusk, clamp01(twilight * 0.8));
+    scene.fog.color.copy(sky);
+    hemi.color.copy(AMB.day).lerp(AMB.night, clamp01(night)).lerp(AMB.dusk, clamp01(twilight * 0.6));
+    hemi.groundColor.copy(AMB.groundDay).lerp(AMB.groundNight, clamp01(night));
+    hemi.intensity = 1.0 + 1.1 * night + 0.5 * twilight;
+    renderer.toneMappingExposure = 1.0 + 0.95 * night + 0.25 * twilight;
+    lit.forEach((m) => { m.emissiveIntensity = 0.9 + 1.0 * night; });
+    setCrypt(cryptSelect.value);
+    setCross(+crossSlider.value);
+    const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60);
+    const label = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}  ${night > 0.85 ? 'night' : night < 0.15 ? (twilight > 0.3 ? 'golden hour' : 'day') : (h < 12 ? 'dawn' : 'dusk')}`;
+    if (label !== timeLabel) timeState.textContent = timeLabel = label;
+  }
+  // The clock keeps its own time: the slider rounds to 3-minute steps, which would swallow a frame's advance.
+  // Speed matches the game: night (18:00 to 06:00) lasts nightSeconds and day lasts daySeconds, as in index.html's TUNE.
+  const params = new URLSearchParams(location.search);
+  const NIGHT_S = parseFloat(params.get('nightSeconds')) || 60, DAY_S = parseFloat(params.get('daySeconds')) || 50;
+  let hour = +timeSlider.value;
+  timeSlider.addEventListener('input', () => { hour = +timeSlider.value; setTime(hour); });
+  window.stepTime = (dt) => {
+    if (!timeRun.checked) return;
+    const isDay = hour >= 6 && hour < 18;
+    hour = (hour + Math.min(dt, 0.1) * 12 / (isDay ? DAY_S : NIGHT_S)) % 24;
+    timeSlider.value = hour; setTime(hour);
+  };
+  setTime(hour);
+}
+
+const stats = document.getElementById('stats');
+let frames = 0;
+const clock = new THREE.Clock();
+let slowAcc = 0, slowN = 0, calmWindows = 0;
+function adaptResolution(dt) {
+  if (document.hidden || dt > 0.5) return;   // a tab switch is not a slow frame
+  slowAcc += dt;
+  if (++slowN < 40) return;
+  const avg = slowAcc / slowN; slowAcc = 0; slowN = 0;
+  if (avg > 1 / 48 && renderScale > 0.6) { renderScale = Math.max(0.6, renderScale * 0.85); renderer.setPixelRatio(renderScale); calmWindows = 0; }
+  else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) { renderScale = Math.min(MAX_SCALE, renderScale * 1.1); renderer.setPixelRatio(renderScale); calmWindows = 0; }
+}
+function tick() {
+  const dt = clock.getDelta();
+  if (document.title.startsWith('ready')) adaptResolution(dt);
+  if (window.stepCross) window.stepCross(dt);
+  if (window.stepTime) window.stepTime(dt);
+  if (window.stepWalk) window.stepWalk(dt);
+  controls.update();
+  if (frames % 6 === 0) window.syncCamSliders();
+  if (scene.fog) { const d = camera.position.distanceTo(controls.target); scene.fog.near = d + 70; scene.fog.far = d + 200; }
+  aimShadows();
+  renderer.render(scene, camera);
+  if (++frames % 30 === 0) stats.textContent = `${renderer.info.render.triangles.toLocaleString()} triangles, ${renderer.info.render.calls} draw calls, render scale ${renderScale.toFixed(2)}`;
+  requestAnimationFrame(tick);
+}
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+// Camera sliders: angle is degrees below level (90 is straight down), zoom is the distance to the point looked at.
+// They drive the orbit camera, and they follow it when the mouse changes the view.
+const camAngle = document.getElementById('camAngle'), camZoom = document.getElementById('camZoom'), camState = document.getElementById('camState');
+const sph = new THREE.Spherical(), camOff = new THREE.Vector3();
+function applyCamSliders() {
+  sph.setFromVector3(camOff.copy(camera.position).sub(controls.target));
+  sph.phi = (90 - +camAngle.value) * Math.PI / 180; sph.radius = +camZoom.value;
+  camera.position.copy(controls.target).add(camOff.setFromSpherical(sph));
+  showCam();
+}
+function showCam() {
+  const widthM = 2 * +camZoom.value * Math.tan(camera.fov * Math.PI / 360) * camera.aspect;
+  camState.textContent = `${camAngle.value} degrees down (${90 - camAngle.value} off vertical), ${camZoom.value} m away, about ${Math.round(widthM)} m wide (${Math.round(widthM / 3)} tiles)`;
+}
+camAngle.addEventListener('input', applyCamSliders); camZoom.addEventListener('input', applyCamSliders);
+for (const el of [camAngle, camZoom]) el.addEventListener('change', () => el.blur());   // let go, so mouse orbiting can update the slider again
+window.syncCamSliders = () => {
+  if (document.activeElement === camAngle || document.activeElement === camZoom) return;
+  sph.setFromVector3(camOff.copy(camera.position).sub(controls.target));
+  const a = Math.round(90 - sph.phi * 180 / Math.PI), z = Math.round(sph.radius);
+  if (+camAngle.value !== a || +camZoom.value !== z) { camAngle.value = a; camZoom.value = z; showCam(); }
+};
+showCam();
+// Settings panel: the button or the H key folds it down to a single small button.
+const panel = document.getElementById('panel'), panelToggle = document.getElementById('panelToggle');
+function togglePanel() {
+  const min = panel.classList.toggle('min');
+  panelToggle.textContent = min ? 'Settings' : 'Hide'; panelToggle.setAttribute('aria-expanded', String(!min)); panelToggle.blur();
+  try { localStorage.setItem('scene3d.panel', min ? 'hidden' : 'open'); } catch (e) { /* storage is optional */ }
+}
+panelToggle.addEventListener('click', togglePanel);
+addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey) togglePanel(); });
+try { if (localStorage.getItem('scene3d.panel') === 'open') togglePanel(); } catch (e) { /* storage is optional */ }   // hidden unless the viewer opened it last time
+window.preview = { scene, camera, controls, renderer };
+// Loading screen: tracks every model and texture, and lifts only once the scene has been compiled and drawn.
+const loading = document.getElementById('loading'), loadFill = document.getElementById('loadFill'), loadText = document.getElementById('loadText');
+let filesIdle = false;
+THREE.DefaultLoadingManager.onProgress = (url, done, total) => { filesIdle = false; loadFill.style.width = Math.round(100 * done / total) + '%'; loadText.textContent = `Loading the town (${done} of ${total} files)`; };
+THREE.DefaultLoadingManager.onStart = () => { filesIdle = false; };
+THREE.DefaultLoadingManager.onLoad = () => { filesIdle = true; };
+build().then(async () => {
+  while (!filesIdle) await new Promise((r) => setTimeout(r, 50));   // textures requested during the build
+  loadFill.style.width = '100%'; loadText.textContent = 'Preparing the scene';
+  await new Promise((r) => setTimeout(r, 30));
+  if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera);
+  renderer.render(scene, camera);
+  await new Promise((r) => setTimeout(r, 150));
+  while (!filesIdle) await new Promise((r) => setTimeout(r, 50));   // anything the first draw asked for
+  renderer.render(scene, camera);
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  loading.classList.add('done'); setTimeout(() => loading.remove(), 700);
+  document.title = 'ready: ' + document.title;
+}).catch((e) => { loadText.textContent = 'Failed to load: ' + (e.message || e); status.textContent = loadText.textContent; console.error(e); });
+tick();
+</script>
+</body>
+</html>
