@@ -46,6 +46,8 @@
   <label>Cross <input type="range" id="cross" min="0" max="100" value="12" style="flex:1"></label>
   <label><input type="checkbox" id="crossAuto" checked> Cycle the cross</label>
   <div id="crossState" style="color:#a99f8c;font-size:12px"></div>
+  <label><input type="checkbox" id="tilt" checked> Tilt-shift blur</label>
+  <label>Blur <input type="range" id="tiltStrength" min="0" max="4" step="0.05" value="2.2" style="flex:1"></label>
   <label>Crypt <select id="crypt"><option value="empty">Empty</option><option value="orange">Orange</option><option value="red" selected>Red</option></select></label>
   <div id="hint">WASD or arrows walk the player; the camera follows. Drag to orbit, right-drag to pan, scroll to zoom.</div>
   <div id="stats"></div>
@@ -55,6 +57,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // World: 1 unit is 1 metre. +X is east, +Z is south, so buildings face +Z like the game's south-facing homes.
 const RIVER_HALF = 6.94, ROAD_HALF = 3.375, BRIDGE_HALF = 3.75, GROUND = 170;
@@ -500,7 +506,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   const walker = { x: yard.x, z: yard.z - 4 + 0.33 * CRYPT_SCALE + 2.2 };   // starts on the crypt's doorstep
   const SPEED = 150 * 3 / 32, TOWN_X = 92, TOWN_Z = 60;   // walkable area: past the southernmost doors, with room to walk round every home
   const solids = [...homes.map(([x, z]) => ({ x, z, r: 4.7 })), { x: churchAt[0], z: churchAt[1], r: 6.2 }, { x: yard.x, z: yard.z - 4, r: 3.5 }, ...tombs, ...trunks];
-  window.sceneDebug = { trunks, tombs, walker };   // for checking collisions from the console
+  window.sceneDebug = { trunks, tombs, walker, pawn };   // for checking collisions from the console
   const onBridge = (x, z) => Math.abs(x) < RIVER_HALF + 3 && roadDist(x, z) < BRIDGE_HALF - 0.9;
   const canStand = (x, z) => Math.abs(x) <= TOWN_X && Math.abs(z) <= TOWN_Z && (Math.abs(x) > RIVER_HALF + 0.4 || onBridge(x, z)) && solids.every((o) => Math.hypot(x - o.x, z - o.z) > o.r);
   const groundY = (x, z) => onBridge(x, z) ? Math.max(heightAt(x, z), 0.42 * sstep(RIVER_HALF + 3, RIVER_HALF, Math.abs(x)) + 0.02) : roadDist(x, z) < ROAD_HALF ? roadTop(x, z) + crown(x, z) + 0.04 : heightAt(x, z);
@@ -588,8 +594,8 @@ function adaptResolution(dt) {
   slowAcc += dt;
   if (++slowN < 40) return;
   const avg = slowAcc / slowN; slowAcc = 0; slowN = 0;
-  if (avg > 1 / 48 && renderScale > 0.6) { renderScale = Math.max(0.6, renderScale * 0.85); renderer.setPixelRatio(renderScale); calmWindows = 0; }
-  else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) { renderScale = Math.min(MAX_SCALE, renderScale * 1.1); renderer.setPixelRatio(renderScale); calmWindows = 0; }
+  if (avg > 1 / 48 && renderScale > 0.6) { renderScale = Math.max(0.6, renderScale * 0.85); renderer.setPixelRatio(renderScale); if (window.onRenderScale) window.onRenderScale(); calmWindows = 0; }
+  else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) { renderScale = Math.min(MAX_SCALE, renderScale * 1.1); renderer.setPixelRatio(renderScale); if (window.onRenderScale) window.onRenderScale(); calmWindows = 0; }
 }
 function tick() {
   const dt = clock.getDelta();
@@ -601,11 +607,11 @@ function tick() {
   if (frames % 6 === 0) window.syncCamSliders();
   if (scene.fog) { const d = camera.position.distanceTo(controls.target); scene.fog.near = d + 70; scene.fog.far = d + 200; }
   aimShadows();
-  renderer.render(scene, camera);
+  drawFrame();
   if (++frames % 30 === 0) stats.textContent = `${renderer.info.render.triangles.toLocaleString()} triangles, ${renderer.info.render.calls} draw calls, render scale ${renderScale.toFixed(2)}`;
   requestAnimationFrame(tick);
 }
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); if (window.onRenderScale) window.onRenderScale(); });
 // Camera sliders: angle is degrees below level (90 is straight down), zoom is the distance to the point looked at.
 // They drive the orbit camera, and they follow it when the mouse changes the view.
 const camAngle = document.getElementById('camAngle'), camZoom = document.getElementById('camZoom'), camState = document.getElementById('camState');
@@ -639,6 +645,50 @@ function togglePanel() {
 panelToggle.addEventListener('click', togglePanel);
 addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey) togglePanel(); });
 try { if (localStorage.getItem('scene3d.panel') === 'open') togglePanel(); } catch (e) { /* storage is optional */ }   // hidden unless the viewer opened it last time
+// Tilt-shift (SPEC-3D section 7): a screen-space blur that grows toward the top and bottom of the view, leaving a
+// sharp band across the middle 40% centred on the player's screen row. Two passes, horizontal then vertical, nine
+// samples each. The second pass also lifts saturation by 15% and adds a slight vignette. Tone mapping comes last.
+const TiltShift = {
+  uniforms: { tDiffuse: { value: null }, uDir: { value: new THREE.Vector2(1, 0) }, uFocus: { value: 0.5 }, uRadius: { value: 0.007 }, uGrade: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform vec2 uDir; uniform float uFocus, uRadius, uGrade; varying vec2 vUv;
+    void main() {
+      float amt = smoothstep(0.13, 0.42, abs(vUv.y - uFocus));   // 0 inside the sharp band (the middle quarter), 1 toward the edge
+      vec2 stepUv = uDir * uRadius * amt / 4.0;
+      vec4 c = texture2D(tDiffuse, vUv) * 0.2270;
+      c += (texture2D(tDiffuse, vUv + stepUv) + texture2D(tDiffuse, vUv - stepUv)) * 0.1945;
+      c += (texture2D(tDiffuse, vUv + stepUv * 2.0) + texture2D(tDiffuse, vUv - stepUv * 2.0)) * 0.1216;
+      c += (texture2D(tDiffuse, vUv + stepUv * 3.0) + texture2D(tDiffuse, vUv - stepUv * 3.0)) * 0.0541;
+      c += (texture2D(tDiffuse, vUv + stepUv * 4.0) + texture2D(tDiffuse, vUv - stepUv * 4.0)) * 0.0162;
+      if (uGrade > 0.5) {
+        float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+        c.rgb = max(vec3(0.0), mix(vec3(l), c.rgb, 1.15));
+        vec2 v = vUv - 0.5; c.rgb *= 1.0 - 0.32 * smoothstep(0.35, 0.95, length(v * vec2(1.0, 0.85)) * 1.6);
+      }
+      gl_FragColor = c;
+    }`,
+};
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+composer.addPass(new RenderPass(scene, camera));
+const blurH = new ShaderPass(TiltShift), blurV = new ShaderPass(TiltShift);
+blurV.uniforms.uGrade.value = 1;
+composer.addPass(blurH); composer.addPass(blurV); composer.addPass(new OutputPass());
+composer.setPixelRatio(renderScale); composer.setSize(innerWidth, innerHeight);
+const tiltBox = document.getElementById('tilt'), tiltStrength = document.getElementById('tiltStrength'), focusPoint = new THREE.Vector3();
+renderer.info.autoReset = false;   // so the triangle count covers the scene, not just the last full-screen pass
+function drawFrame() {
+  renderer.info.reset();
+  if (!tiltBox.checked) { renderer.render(scene, camera); return; }
+  // The sharp band follows the player's row on screen (the camera's subject when nobody is walking).
+  focusPoint.copy(window.sceneDebug && window.sceneDebug.pawn ? window.sceneDebug.pawn.position : controls.target).project(camera);
+  const focus = Math.min(0.8, Math.max(0.2, focusPoint.y * 0.5 + 0.5)), radius = 0.007 * +tiltStrength.value;   // 0.7% of the view height at strength 1
+  blurH.uniforms.uFocus.value = blurV.uniforms.uFocus.value = focus;
+  blurH.uniforms.uDir.value.set(innerHeight / innerWidth, 0); blurV.uniforms.uDir.value.set(0, 1);
+  blurH.uniforms.uRadius.value = blurV.uniforms.uRadius.value = radius;
+  composer.render();
+}
+window.onRenderScale = () => { composer.setPixelRatio(renderScale); composer.setSize(innerWidth, innerHeight); };
 window.preview = { scene, camera, controls, renderer };
 // Loading screen: tracks every model and texture, and lifts only once the scene has been compiled and drawn.
 const loading = document.getElementById('loading'), loadFill = document.getElementById('loadFill'), loadText = document.getElementById('loadText');
