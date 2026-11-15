@@ -52,7 +52,7 @@ for (const [k, v] of new URLSearchParams(location.search)) {
   if (k in TUNE && !isNaN(parseFloat(v))) TUNE[k] = parseFloat(v);
 }
 
-const T = 32, COLS = 52, ROWS = 28, HUD = 48, FOOT = 92;   // the map is wider and taller than the view, which scrolls with the player
+const T = 32, COLS = 52, ROWS = 28, HUD = 48, FOOT = 48;   // the map is wider and taller than the view, which scrolls with the player
 const WORLD_W = COLS * T, WORLD_H = ROWS * T;
 const HOUSE_W = 3 * T, HOUSE_H = 2 * T, HOMES = 16;
 const RIVER_HALF = 74, ROAD_HALF = 36, BRIDGE_HALF = 40;   // half-widths in pixels
@@ -1126,8 +1126,8 @@ function doorPrompt() {
   return isNight() ? `${h.name}.  [E] knock` : h.name + '.';
 }
 
-// The footer: one line for what the player can do or has just been told, then the last three events, newest
-// at the bottom, each fading out with age.
+// The footer is two lines tall. The bottom line is the newest event. The top line is what the player can do
+// or has just been told, or the event before when there is nothing to say. Events fade out with age.
 function drawFooter() {
   const now = performance.now(), top = cv.height - FOOT;
   ctx.fillStyle = '#14141c'; ctx.fillRect(0, top, cv.width, FOOT);
@@ -1136,13 +1136,14 @@ function drawFooter() {
   if (player.state === 'inside') hint = player.feed > 0 ? '' : (player.house === crypt ? 'Inside the crypt.' : `Inside ${player.house.at}.`) + (autoSkip() ? '  Nothing left to do. Time races on.' : isNight() ? '  [E] leave   hold [Space] to pass time' : '  Hold [Space] to pass time');
   if (flashMsg && now - flashMsg.at < flashMsg.ms) hint = flashMsg.text;
   if (rally) hint = rally.broke ? 'The house of worship falls.' : 'Every house is cursed. The vampires swarm the house of worship.';
-  if (hint && mode === 'play') text(hint, 16, top + 24, '#fff', 'bold 15px monospace');
+  const hinted = hint && mode === 'play';
+  if (hinted) text(hint, 16, top + 19, '#fff', 'bold 14px monospace');
 
-  logs.slice(0, 3).forEach((l, i) => {
+  logs.slice(0, hinted ? 1 : 2).forEach((l, i) => {
     const age = (now - l.at) / 1000;
     if (age > 12) return;
     ctx.globalAlpha = Math.min(1, 12 - age);
-    text(l.text, 16, top + 82 - i * 18, i ? '#aaa' : '#eee');
+    text(l.text, 16, top + 39 - i * 20, i ? '#aaa' : '#eee');
   });
   ctx.globalAlpha = 1;
 }
