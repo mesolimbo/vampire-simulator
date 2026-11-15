@@ -47,9 +47,10 @@
   <label><input type="checkbox" id="crossAuto" checked> Cycle the cross</label>
   <div id="crossState" style="color:#a99f8c;font-size:12px"></div>
   <label><input type="checkbox" id="tilt" checked> Tilt-shift blur</label>
-  <label>Blur <input type="range" id="tiltStrength" min="0" max="4" step="0.05" value="2.2" style="flex:1"></label>
+  <label>Blur <input type="range" id="tiltStrength" min="0" max="4" step="0.05" value="3" style="flex:1"> <span id="tiltVal">3.00</span></label>
+  <label>Brightness <input type="range" id="bright" min="0.4" max="2.5" step="0.05" value="1.75" style="flex:1"> <span id="brightVal">1.75</span></label>
   <label>Crypt <select id="crypt"><option value="empty">Empty</option><option value="orange">Orange</option><option value="red" selected>Red</option></select></label>
-  <div id="hint">WASD or arrows walk the player; the camera follows. Drag to orbit, right-drag to pan, scroll to zoom.</div>
+  <div id="hint">WASD or arrows walk the player; the camera follows. Drag to orbit, right-drag to pan.</div>
   <div id="stats"></div>
   <div id="status">Loading models</div>
 </div>
@@ -80,8 +81,10 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.5, 900);
 camera.position.set(8, 48 * Math.sin(29 * Math.PI / 180), 4 + 48 * Math.cos(29 * Math.PI / 180));   // 29 degrees down, 48 m from the point looked at
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.screenSpacePanning = false;   // right-drag slides the view over the ground, never up into the sky
+controls.enableZoom = false;   // the wheel does nothing; the Zoom slider sets the distance
 controls.target.set(8, 0, 4);
-controls.maxPolarAngle = Math.PI * 0.49;
+controls.maxPolarAngle = Math.PI * 0.47;   // stops a little above eye level, so the camera never dips under a rise
 controls.minDistance = 4;
 controls.maxDistance = 320;
 controls.update();
@@ -179,8 +182,9 @@ async function build() {
   const vnoise = (x, z) => { const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, u = fx * fx * (3 - 2 * fx), w = fz * fz * (3 - 2 * fz); return (hash2(ix, iz) * (1 - u) + hash2(ix + 1, iz) * u) * (1 - w) + (hash2(ix, iz + 1) * (1 - u) + hash2(ix + 1, iz + 1) * u) * w; };
   const YARD_RISE = 1.3, MOUND = 1.25, CROWN = 0.45;
   const valley = (x) => sstep(RIVER_HALF + 0.6, RIVER_HALF + 18, Math.abs(x));
-  const swell = (x, z) => ((vnoise(x / 58 + 3, z / 58) - 0.5) * 5.2 + (vnoise(x / 24 + 9, z / 24 + 4) - 0.5) * 1.8 + 0.5) * valley(x);
-  const bumps = (x, z) => (vnoise(x / 9 + 2, z / 9 + 7) - 0.5) * 0.45 * valley(x);
+  const edge = (x, z) => 1 - sstep(135, 168, Math.max(Math.abs(x), Math.abs(z)));   // the land flattens to zero at the border, to meet the flat skirt beyond it
+  const swell = (x, z) => ((vnoise(x / 58 + 3, z / 58) - 0.5) * 5.2 + (vnoise(x / 24 + 9, z / 24 + 4) - 0.5) * 1.8 + 0.5) * valley(x) * edge(x, z);
+  const bumps = (x, z) => (vnoise(x / 9 + 2, z / 9 + 7) - 0.5) * 0.45 * valley(x) * edge(x, z);
   const rises = (x, z) => HILL * (1 - sstep(6, 20.5, Math.hypot(x - churchAt[0], z - churchAt[1]))) + YARD_RISE * (1 - sstep(15, 34, Math.hypot(x - yard.x, z - yard.z)));
   const base = (x, z) => swell(x, z) + bumps(x, z) + rises(x, z);
   // Height of the road surface at a point: the smooth land under the nearest point of the road's centre line, plus the mound.
@@ -189,12 +193,12 @@ async function build() {
     for (const r of roads) {
       const a = r.deg * Math.PI / 180, dx = Math.cos(a), dz = Math.sin(a), t = (x - r.at[0]) * dx + (z - r.at[1]) * dz;
       const cx = r.at[0] + dx * t, cz = r.at[1] + dz * t, d = Math.hypot(x - cx, z - cz);
-      if (d < best) { best = d; top = swell(cx, cz) + rises(cx, cz) + MOUND * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(cx)); }
+      if (d < best) { best = d; top = swell(cx, cz) + rises(cx, cz) + MOUND * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(cx)) * edge(cx, cz); }
     }
     return top;
   }
   // The road surface arcs across its width: highest on the centre line, falling to the edges. It flattens at the bridges.
-  const crown = (x, z) => { const d = roadDist(x, z) / ROAD_HALF; return d >= 1 ? 0 : CROWN * (1 - d * d) * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(x)); };
+  const crown = (x, z) => { const d = roadDist(x, z) / ROAD_HALF; return d >= 1 ? 0 : CROWN * (1 - d * d) * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(x)) * edge(x, z); };
   const pads = [...homes.map(([x, z]) => ({ x, z, r: 6.5, b: 6, h: base(x, z) })), { x: churchAt[0], z: churchAt[1], r: 7, b: 6, h: base(churchAt[0], churchAt[1]) }, { x: yard.x, z: yard.z, r: 18, b: 9, h: base(yard.x, yard.z) }];
   function heightAt(x, z) {
     const bank = Math.abs(x);
@@ -203,7 +207,11 @@ async function build() {
     for (const p of pads) { const w = 1 - sstep(p.r, p.r + p.b, Math.hypot(x - p.x, z - p.z)); if (w > 0) h += (p.h - h) * w; }
     // embankment: the ground rises to just under the road surface, with shoulders sloping away over 4 m
     const rw = 1 - sstep(ROAD_HALF + 0.3, ROAD_HALF + 6.5, roadDist(x, z));
-    if (rw > 0) h += (roadTop(x, z) - 0.13 * sstep(RIVER_HALF + 0.6, RIVER_HALF + 3, bank) - h) * rw;
+    if (rw > 0) {
+      // Follows the road's arc a few centimetres under the surface, so the road neither floats nor leaves a hollow.
+      const sink = 0.08 * edge(x, z);   // level with the skirt at the border
+      h += (roadTop(x, z) + crown(x, z) - sink * sstep(RIVER_HALF + 0.6, RIVER_HALF + 3, bank) - h) * rw;
+    }
     return h;
   }
 
@@ -286,9 +294,27 @@ diffuseColor.rgb *= gC;`);
   // ---- River: one 6 m module repeated along the river line ----
   for (let z = -GROUND + 3; z < GROUND; z += 6) { const r = loaded.river_straight.clone(); r.position.set(0, 0, z); shadows(r, false, true); scene.add(r); }
 
+  // ---- Skirt: flat grass and a stretched river beyond the modelled ground, so no view shows the edge of the map ----
+  const FAR = 900, skirtMat = grass(1);
+  const skirt = (x0, x1, z0, z1) => {
+    const g = new THREE.PlaneGeometry(Math.abs(x1 - x0), z1 - z0); g.rotateX(-Math.PI / 2); g.translate((x0 + x1) / 2, -0.03, (z0 + z1) / 2);
+    const gp = g.attributes.position, gu = g.attributes.uv;
+    for (let i = 0; i < gp.count; i++) gu.setXY(i, gp.getX(i) / TILE, gp.getZ(i) / TILE);
+    scene.add(new THREE.Mesh(g, skirtMat));
+  };
+  for (const side of [-1, 1]) {
+    const inner = side * (RIVER_HALF + 0.6), far = side * FAR;
+    const lap = GROUND - 1.5;   // tucked under the last metre of modelled ground, so no gap opens at the border
+    skirt(inner, far, -FAR, -lap); skirt(inner, far, lap, FAR); skirt(side * lap, far, -lap, lap);
+    const r = loaded.river_straight.clone(); r.scale.z *= (FAR - GROUND) / 6; r.position.set(0, 0, side * (GROUND + FAR) / 2); scene.add(r);
+  }
+
   // ---- Roads and bridges ----
   eachMaterial(loaded.road_straight, (m) => {
     m.transparent = true; m.depthWrite = false;
+    // Front faces only. The road does not write depth, so from a low angle the far slope of its arc would otherwise
+    // draw through the crest, seen from underneath and unlit: dark domes along the road.
+    m.side = THREE.FrontSide;
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uRoads = roadLines;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
@@ -320,20 +346,49 @@ diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 *
     const half = (RIVER_HALF + BRIDGE_HALF * Math.sqrt(1 - sin * sin)) / sin + 0.94;
     const spans = Math.ceil((2 * half - 6) / 3), total = spans * 3 + 6;
     const at = (s, y = 0) => new THREE.Vector3(road.at[0] + dx * s, y, road.at[1] + dz * s);
+    const ends = [Infinity, -Infinity];
     for (let s = -GROUND * 1.2; s < GROUND * 1.2; s += 3) {
       const mid = s + 1.5;
       if (Math.abs(mid) < total / 2 - 3) continue;   // the deck takes over here; the road runs on under the ramps
       const p = at(mid, ri * 0.012);
       if (Math.abs(p.x) > GROUND || Math.abs(p.z) > GROUND) continue;
+      ends[0] = Math.min(ends[0], s); ends[1] = Math.max(ends[1], s + 3);
       const r = loaded.road_straight.clone(); r.position.copy(p); r.rotation.y = yaw; r.updateMatrixWorld(true);
       r.traverse((o) => {   // lift every vertex onto the embankment, so the module follows the land
         if (!o.isMesh) return;
-        o.geometry = o.geometry.clone();
+        // Keep only upward faces, in case a module ever carries sides or a base.
+        const src = o.geometry.toNonIndexed(), sp = src.attributes.position, keep = [];
+        const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3(), fn = new THREE.Vector3();
+        for (let i = 0; i < sp.count; i += 3) {
+          pa.fromBufferAttribute(sp, i).applyMatrix4(o.matrixWorld); pb.fromBufferAttribute(sp, i + 1).applyMatrix4(o.matrixWorld); pc.fromBufferAttribute(sp, i + 2).applyMatrix4(o.matrixWorld);   // world space: the mesh node carries its own rotation
+          if (fn.subVectors(pb, pa).cross(pc.sub(pa)).normalize().y > 0.5) keep.push(i, i + 1, i + 2);
+        }
+        o.geometry = new THREE.BufferGeometry();
+        for (const name of Object.keys(src.attributes)) {
+          const at = src.attributes[name], arr = new at.array.constructor(keep.length * at.itemSize);
+          keep.forEach((k, n) => { for (let c = 0; c < at.itemSize; c++) arr[n * at.itemSize + c] = at.array[k * at.itemSize + c]; });
+          // Split every triangle into 16, so the surface follows the same arc and swell as the ground under it.
+          let cur = arr; const w = at.itemSize;
+          for (let pass = 0; pass < 2; pass++) {
+            const out = new cur.constructor(cur.length * 4), tri = w * 3;
+            for (let t = 0; t < cur.length; t += tri) {
+              const P = (i) => Array.from(cur.subarray(t + i * w, t + i * w + w)), mid = (u, q) => u.map((x, c) => (x + q[c]) / 2);
+              const A = P(0), B = P(1), C = P(2), AB = mid(A, B), BC = mid(B, C), CA = mid(C, A);
+              out.set([A, AB, CA, AB, B, BC, CA, BC, C, AB, BC, CA].flat(), t * 4);
+            }
+            cur = out;
+          }
+          o.geometry.setAttribute(name, new THREE.BufferAttribute(cur, w, at.normalized));
+        }
         const g = o.geometry.attributes.position, inv = o.matrixWorld.clone().invert();
         for (let i = 0; i < g.count; i++) { v.fromBufferAttribute(g, i).applyMatrix4(o.matrixWorld); v.y += roadTop(v.x, v.z) + crown(v.x, v.z); v.applyMatrix4(inv); g.setXYZ(i, v.x, v.y, v.z); }
         o.geometry.computeVertexNormals(); o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox();
       });
       shadows(r, false, true); r.traverse((o) => { o.renderOrder = 1; }); scene.add(r);
+    }
+    for (const [from, dir] of [[ends[0], -1], [ends[1], 1]]) {   // one stretched module carries the road on past the border, into the fog
+      const r = loaded.road_straight.clone(); r.position.copy(at(from + dir * 200, ri * 0.012)); r.rotation.y = yaw; r.scale.z *= 400 / 3;
+      r.traverse((o) => { o.renderOrder = 1; }); scene.add(r);
     }
     for (let i = 0; i < spans; i++) {
       const b = span.clone(); b.position.copy(at(-total / 2 + 3 + i * 3 + 1.5, deckY)); b.rotation.y = yaw; shadows(b); scene.add(b);
@@ -418,22 +473,22 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   { const g = halo.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
   const crossHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(halo), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   crossHalo.position.set(0, 0.42, 0.262); loaded.church.add(crossHalo);
-  const crossLamp = new THREE.PointLight(0xffffff, 0, 30, 1.8); crossLamp.position.set(0, 0.47, 0.3); loaded.church.add(crossLamp);
+  const crossLamp = new THREE.PointLight(0xffffff, 0, 30, 1.8); crossLamp.position.set(0, 0.42, 0.33);   // level with the crossing, just in front of it loaded.church.add(crossLamp);
   // Slider: 0 is the final swarm (bright red). 1 to 100 is town health falling, from blazing white down to dull grey.
   const crossSlider = document.getElementById('cross'), crossAuto = document.getElementById('crossAuto'), crossState = document.getElementById('crossState');
-  const CROSS = { red: new THREE.Color(1, 0, 0), white: new THREE.Color(1, 1, 1), redStone: new THREE.Color(0.9, 0.05, 0.04), redHalo: new THREE.Color(1, 0.08, 0.05), redLamp: new THREE.Color(1, 0.1, 0.06), window: new THREE.Color(1.0, 0.6, 0.13) };
+  const CROSS = { red: new THREE.Color(1, 0, 0.03), white: new THREE.Color(1, 1, 1), redStone: new THREE.Color(0.5, 0, 0.01), redHalo: new THREE.Color(1, 0, 0.04), redLamp: new THREE.Color(1, 0.02, 0.04), window: new THREE.Color(1.0, 0.6, 0.13) };
   let crossLabel = '';
   function setCross(v) {
     const red = v < 1, t = red ? 0 : (v - 1) / 99, strength = red ? 8 : 8 * Math.pow(0.3 / 8, t);   // the spec's emission strength, 8 down to 0.3
     const live = red ? 1 : Math.pow(1 - t, 1.4);   // what the eye should read: 1 blazing, 0 dead
     const col = red ? CROSS.red : CROSS.white;
     // Red stays below 1 so tone mapping cannot bleach it, and the stone itself is tinted red.
-    crossGlow.value.copy(col).multiplyScalar(red ? 0.6 : 2.6 * live);
+    crossGlow.value.copy(col).multiplyScalar(red ? 0.3 : 1.5 * live);   // kept low: bright pure red tone-maps toward orange
     crossStone.value.copy(red ? CROSS.redStone : CROSS.white).multiplyScalar(red ? 1 : 0.28 + 0.72 * live);
     crossHalo.material.color.copy(red ? CROSS.redHalo : col);
-    crossHalo.material.opacity = (red ? 0.4 : 0.95) * live; crossHalo.scale.setScalar(0.1 + 0.42 * live);
+    crossHalo.material.opacity = (red ? 0.2 : 0.5) * live; crossHalo.scale.setScalar(0.1 + (red ? 0.42 : 0.26) * live);
     // Windows: a creeping red for the final swarm; otherwise the same warm yellow as a healthy home, stronger at night.
-    churchWin.value.copy(red ? CROSS.red : CROSS.window).multiplyScalar(red ? 0.7 : 0.62 + 0.12 * night);
+    churchWin.value.copy(red ? CROSS.red : CROSS.window).multiplyScalar(red ? 0.34 : 0.62 + 0.12 * night);
     const lampK = (red ? 1.0 : 8 * live);
     crossLamp.color.copy(red ? CROSS.redLamp : col); crossLamp.intensity = lampK * (1.5 + 5 * night);
     const label = red ? 'Final swarm: red, strength 8' : `Town health ${Math.round((1 - t) * 100)}%: white, strength ${strength.toFixed(1)}`;
@@ -518,13 +573,17 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   let following = true;   // the camera starts on the player, as the game does
   const has = (...c) => c.some((k) => keys.has(k));
   window.stepWalk = (dt) => {
-    const dx = (has('KeyD', 'ArrowRight') ? 1 : 0) - (has('KeyA', 'ArrowLeft') ? 1 : 0), dz = (has('KeyS', 'ArrowDown') ? 1 : 0) - (has('KeyW', 'ArrowUp') ? 1 : 0);
-    if (dx || dz) {
+    const ix = (has('KeyD', 'ArrowRight') ? 1 : 0) - (has('KeyA', 'ArrowLeft') ? 1 : 0), iy = (has('KeyW', 'ArrowUp') ? 1 : 0) - (has('KeyS', 'ArrowDown') ? 1 : 0);
+    if (ix || iy) {
+      // Keys are relative to the view: up walks away from the camera, right walks to screen right.
+      let fx = controls.target.x - camera.position.x, fz = controls.target.z - camera.position.z; const fl = Math.hypot(fx, fz);
+      if (fl < 1e-4) { fx = 0; fz = -1; } else { fx /= fl; fz /= fl; }
+      const dx = ix * -fz + iy * fx, dz = ix * fx + iy * fz;
       const step = SPEED * Math.min(dt, 0.05) / Math.hypot(dx, dz), nx = walker.x + dx * step, nz = walker.z + dz * step;
       if (canStand(nx, nz)) { walker.x = nx; walker.z = nz; } else if (canStand(nx, walker.z)) walker.x = nx; else if (canStand(walker.x, nz)) walker.z = nz;   // slide along obstacles
       pawn.rotation.y = Math.atan2(dx, dz);
     }
-    pawn.position.set(walker.x, groundY(walker.x, walker.z) + (dx || dz ? 0.06 * Math.abs(Math.sin(performance.now() / 70)) : 0), walker.z);
+    pawn.position.set(walker.x, groundY(walker.x, walker.z) + (ix || iy ? 0.06 * Math.abs(Math.sin(performance.now() / 70)) : 0), walker.z);
     if (!following) return;
     const k = 1 - Math.pow(1 - 0.12, Math.min(dt, 0.1) * 60);
     const mx = (walker.x - controls.target.x) * k, mz = (walker.z - controls.target.z) * k, my = (pawn.position.y - controls.target.y) * k;
@@ -562,7 +621,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
     hemi.color.copy(AMB.day).lerp(AMB.night, clamp01(night)).lerp(AMB.dusk, clamp01(twilight * 0.6));
     hemi.groundColor.copy(AMB.groundDay).lerp(AMB.groundNight, clamp01(night));
     hemi.intensity = 1.0 + 1.1 * night + 0.5 * twilight;
-    renderer.toneMappingExposure = 1.0 + 0.95 * night + 0.25 * twilight;
+    baseExposure = 1.0 + 0.95 * night + 0.25 * twilight;
     lit.forEach((m) => { m.emissiveIntensity = 0.9 + 1.0 * night; });
     setCrypt(cryptSelect.value);
     setCross(+crossSlider.value);
@@ -587,6 +646,10 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
 
 const stats = document.getElementById('stats');
 let frames = 0;
+let baseExposure = 1;   // set by the time of day; the brightness slider multiplies it
+const brightSlider = document.getElementById('bright');
+brightSlider.addEventListener('input', () => { document.getElementById('brightVal').textContent = (+brightSlider.value).toFixed(2); });
+document.getElementById('tiltStrength').addEventListener('input', (e) => { document.getElementById('tiltVal').textContent = (+e.target.value).toFixed(2); });
 const clock = new THREE.Clock();
 let slowAcc = 0, slowN = 0, calmWindows = 0;
 function adaptResolution(dt) {
@@ -604,6 +667,10 @@ function tick() {
   if (window.stepTime) window.stepTime(dt);
   if (window.stepWalk) window.stepWalk(dt);
   controls.update();
+  {   // panning stays inside the play area, so the view never reaches the edge of the map
+    const t = controls.target, cx = Math.min(92, Math.max(-92, t.x)) - t.x, cz = Math.min(60, Math.max(-60, t.z)) - t.z;
+    if (cx || cz) { t.x += cx; t.z += cz; camera.position.x += cx; camera.position.z += cz; }
+  }
   if (frames % 6 === 0) window.syncCamSliders();
   if (scene.fog) { const d = camera.position.distanceTo(controls.target); scene.fog.near = d + 70; scene.fog.far = d + 200; }
   aimShadows();
@@ -646,7 +713,7 @@ panelToggle.addEventListener('click', togglePanel);
 addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey) togglePanel(); });
 try { if (localStorage.getItem('scene3d.panel') === 'open') togglePanel(); } catch (e) { /* storage is optional */ }   // hidden unless the viewer opened it last time
 // Tilt-shift (SPEC-3D section 7): a screen-space blur that grows toward the top and bottom of the view, leaving a
-// sharp band across the middle 40% centred on the player's screen row. Two passes, horizontal then vertical, nine
+// sharp band across the middle 40% centred on the player's screen row. Two passes, horizontal then vertical, 21
 // samples each. The second pass also lifts saturation by 15% and adds a slight vignette. Tone mapping comes last.
 const TiltShift = {
   uniforms: { tDiffuse: { value: null }, uDir: { value: new THREE.Vector2(1, 0) }, uFocus: { value: 0.5 }, uRadius: { value: 0.007 }, uGrade: { value: 0 } },
@@ -655,12 +722,14 @@ const TiltShift = {
     uniform sampler2D tDiffuse; uniform vec2 uDir; uniform float uFocus, uRadius, uGrade; varying vec2 vUv;
     void main() {
       float amt = smoothstep(0.13, 0.42, abs(vUv.y - uFocus));   // 0 inside the sharp band (the middle quarter), 1 toward the edge
-      vec2 stepUv = uDir * uRadius * amt / 4.0;
-      vec4 c = texture2D(tDiffuse, vUv) * 0.2270;
-      c += (texture2D(tDiffuse, vUv + stepUv) + texture2D(tDiffuse, vUv - stepUv)) * 0.1945;
-      c += (texture2D(tDiffuse, vUv + stepUv * 2.0) + texture2D(tDiffuse, vUv - stepUv * 2.0)) * 0.1216;
-      c += (texture2D(tDiffuse, vUv + stepUv * 3.0) + texture2D(tDiffuse, vUv - stepUv * 3.0)) * 0.0541;
-      c += (texture2D(tDiffuse, vUv + stepUv * 4.0) + texture2D(tDiffuse, vUv - stepUv * 4.0)) * 0.0162;
+      // 21 taps, so neighbouring samples sit under two pixels apart and hard edges such as roof lines stay smooth
+      vec2 stepUv = uDir * uRadius * amt / 10.0;
+      vec4 c = texture2D(tDiffuse, vUv); float wSum = 1.0;
+      for (int k = 1; k <= 10; k++) {
+        float f = float(k), w = exp(-f * f / 40.5);
+        c += (texture2D(tDiffuse, vUv + stepUv * f) + texture2D(tDiffuse, vUv - stepUv * f)) * w; wSum += 2.0 * w;
+      }
+      c /= wSum;
       if (uGrade > 0.5) {
         float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
         c.rgb = max(vec3(0.0), mix(vec3(l), c.rgb, 1.15));
@@ -679,6 +748,7 @@ const tiltBox = document.getElementById('tilt'), tiltStrength = document.getElem
 renderer.info.autoReset = false;   // so the triangle count covers the scene, not just the last full-screen pass
 function drawFrame() {
   renderer.info.reset();
+  renderer.toneMappingExposure = baseExposure * +brightSlider.value;
   if (!tiltBox.checked) { renderer.render(scene, camera); return; }
   // The sharp band follows the player's row on screen (the camera's subject when nobody is walking).
   focusPoint.copy(window.sceneDebug && window.sceneDebug.pawn ? window.sceneDebug.pawn.position : controls.target).project(camera);
