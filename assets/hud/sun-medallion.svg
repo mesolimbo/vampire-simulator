@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="61" height="57" viewBox="0 0 61 57">
+<defs>
+ <linearGradient id="brass" x2="0" y2="1"><stop stop-color="#fff0b6"/><stop offset=".25" stop-color="#c89647"/><stop offset=".5" stop-color="#67401d"/><stop offset=".78" stop-color="#e5b761"/><stop offset="1" stop-color="#825022"/></linearGradient>
+ <radialGradient id="sky"><stop stop-color="#80531c"/><stop offset="1" stop-color="#2e1920"/></radialGradient>
+ <radialGradient id="sun" cx=".35" cy=".3"><stop stop-color="#fff8d0"/><stop offset=".6" stop-color="#ffdb80"/><stop offset="1" stop-color="#ca8b30"/></radialGradient>
+</defs>
+<circle cx="30.5" cy="29" r="27" fill="#100b10" stroke="#170e0a" stroke-width="3"/>
+<circle cx="30.5" cy="28" r="25" fill="url(#sky)" stroke="url(#brass)" stroke-width="3"/>
+<circle cx="30.5" cy="28" r="22.5" fill="none" stroke="#b5823a" stroke-width=".7"/>
+<g transform="translate(30.5 28)" stroke="url(#brass)" stroke-width="2" stroke-linecap="round">
+ <path d="M0-14v-5m0 33v5m14-19h5m-33 0h-5m29-10 3.5-3.5m-23.5 23.5-3.5 3.5m23.5-3.5 3.5 3.5m-23.5-23.5-3.5-3.5M5.5-13l2-4.5m-13 30-2 4.5m20.5-22.5 4.5-2m-30 13-4.5 2M13 5.5l4.5 2m-30-13-4.5-2M5.5 13l2 4.5m-13-30-2-4.5"/>
+ <circle r="10.5" fill="url(#sun)" stroke="#f7d189" stroke-width="1.5"/>
+</g></svg>

@@ -1,0 +1,64 @@
+/* Artwork coordinates refer to the untouched 1678 x 937 hud1 concept atlas.
+   One em is one reference pixel; only the HUD uses this coordinate system. */
+:root { --hud-unit: clamp(.72px, .059595vw, 1.25px); --hud-top: calc(72 * var(--hud-unit)); --hud-bottom: calc(89 * var(--hud-unit)); }
+.hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; font: var(--hud-unit)/1 Georgia, 'Times New Roman', serif; color: #fff0bd; text-shadow: 1px 2px 2px #000, 0 0 5px #000; }
+.hud * { box-sizing: border-box; }
+.hud-bar { position: absolute; left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); background: #201212 url('./wood.svg') repeat-x center / auto 100%; border: 3em solid #8d5b2d; box-shadow: inset 0 1em #ffdc86, inset 0 -2em #e7b45d, inset 0 5em #1b1010, 0 2em 5em #000; }
+.hud-bar::before,.hud-bar::after { content: ''; position: absolute; top: 0; bottom: 0; width: 44em; background: url('./concept-atlas.png') -2em -3em / 1678em 937em; pointer-events: none; }
+.hud-bar::before { left: 0; }.hud-bar::after { right: 0; transform: scaleX(-1); }
+.hud-top { top: env(safe-area-inset-top, 0px); min-height: 70em; display: grid; grid-template-columns: 218fr 440fr 193fr 185fr 195fr 180fr 215fr; align-items: center; padding: 2em 35em 4em 43em; gap: 7em; }
+.hud-sprite { display: inline-block; flex: none; width: calc(var(--w) * 1em); height: calc(var(--h) * 1em); background: url('./concept-atlas.png') calc(var(--x) * -1em) calc(var(--y) * -1em) / 1678em 937em no-repeat; }
+.hud-moon { --x: 48; --y: 5; --w: 61; --h: 57; }
+.hud-moon[data-phase="day"] { background: url('./sun-medallion.svg') center / contain no-repeat; }
+.hud-house { --x: 901; --y: 12; --w: 40; --h: 43; }
+.hud-bat { --x: 1077; --y: 18; --w: 55; --h: 30; }
+.hud-hat { --x: 1274; --y: 17; --w: 45; --h: 33; }
+.hud-night { display: flex; align-items: center; gap: 9em; white-space: nowrap; background: linear-gradient(90deg,transparent,#33152a 65%,#28131c); border-radius: 22em; border-block: 1em solid #71502c; }
+.hud-night strong { font-size: 31em; font-weight: 600; }
+.hud-clock { position: relative; height: 48em; min-width: 100em; background: url('./clock.svg') center / 100% 100% no-repeat; }
+.hud-pointer { position: absolute; top: -1em; left: var(--progress, 14%); width: 17em; height: 36em; transform: translateX(-50%); filter: drop-shadow(0 2em 2em #000); background: linear-gradient(90deg,#946230,#fff4c3 48%,#c49547 60%,#ffe7a8); clip-path: polygon(50% 0,100% 42%,58% 72%,50% 100%,42% 72%,0 42%); }
+.hud-countdown { padding: 11em 8em; text-align: center; border: 1em solid #846033; border-radius: 30em; background: linear-gradient(#27121e,#351925 55%,#180e15); white-space: nowrap; }
+.hud-countdown span { font-size: 27em; font-weight: 600; }
+.hud-countdown.is-warning { color: #ff6565; animation: dusk-warning 1s steps(1, end) infinite; }
+@keyframes dusk-warning { 0%, 100% { color: #ff6565; border-color: #e34c42; } 50% { color: #fff0bd; border-color: #846033; } }
+@media (prefers-reduced-motion: reduce) { .hud-countdown.is-warning { animation: none; border-color: #e34c42; } }
+.hud-stat { display: flex; justify-content: center; align-items: center; gap: 8em; min-height: 46em; border-left: 2em ridge #b78949; white-space: nowrap; }
+.hud-stat span:not(.hud-sprite) { font-size: 24em; }.hud-stat b { font-weight: normal; }
+.hud-homes { line-height: 1.08; }.hud-homes .cursed { color: #df9be7; }.hud-homes span:not(.hud-sprite) { display: block; }
+.hud-hunger { gap: 10em; }.hud-pips { display: flex; gap: 7em; }.hud-pips i { width: 21em; height: 21em; border: 2em solid #c4974d; border-radius: 50%; background: #120c0c; box-shadow: 0 2em 3em #000,inset 0 0 3em #000; }.hud-pips i.full { background: radial-gradient(circle at 35% 30%,#f46b5a,#8e172b 60%,#310716); }
+.hud-footer { bottom: env(safe-area-inset-bottom, 0px); height: 85em; padding: 7em 66em 7em 153em; display: flex; align-items: center; gap: 24em; }
+.hud-footer::before,.hud-footer::after { background-position: -2em -855em; }
+.hud-crest { position: absolute; left: 39em; bottom: 4em; --x: 45; --y: 845; --w: 97; --h: 83; clip-path: polygon(0 53%,9%29%,48%0,64%8%,85%29%,100%55%,100%100%,0 100%); }
+.hud-context { flex: 0 1 auto; min-width: 0; max-width: 65%; }
+.hud-title-row { display: flex; gap: 34em; align-items: center; }.hud-title { margin: 0; font-size: 32em; line-height: 1.05; font-weight: 600; white-space: nowrap; }
+.hud-description { margin: calc(5 * var(--hud-unit)) 0 0; font-size: 24em; color: #e7cca0; line-height: 1.1; }
+.hud-action { display: none; align-items: center; gap: 14em; white-space: nowrap; }.hud-action > span { font-size: 26em; }
+.hud[data-fixture="1"] .hud-action { display: flex; }
+.hud-rule { flex: 1; min-width: 30em; height: 3em; background: linear-gradient(90deg,transparent,#d6a957 35%,#d6a957 65%,transparent); position: relative; box-shadow: 0 2em 1em #090707; }.hud-rule::after { content: ''; position: absolute; left: 50%; top: -5em; width: 10em; height: 10em; background: #921c2f; border: 2em solid #d2a050; transform: rotate(45deg); box-shadow: 0 0 0 2em #26100d; }
+.hud-movement { display: flex; align-items: center; gap: 12em; white-space: nowrap; }.hud-movement span { font-size: 26em; }.hud-keys { display: flex; gap: 5em; }
+.hud kbd { display: inline-flex; width: 32em; height: 33em; justify-content: center; align-items: center; border: 2em solid #bb9148; border-radius: 6em; background: linear-gradient(120deg,#4e3020,#170e0b 50%,#392419); box-shadow: inset 0 0 0 1em #ffe3a2, 0 2em 3em #000; font: inherit; }.hud kbd span { font-size: 26em; }
+#panel { z-index: 6; top: calc(var(--hud-top) + env(safe-area-inset-top, 0px) + 8px); max-height: calc(100dvh - var(--hud-top) - var(--hud-bottom) - 32px); overflow-y: auto; }
+@media (max-width: 1100px) {
+ :root { --hud-unit: .8px; --hud-top: 106px; }
+ .hud-top { grid-template-columns: 1.1fr 1fr 1fr 1.15fr; padding-inline: 35em; gap: 4em 10em; }
+ .hud-night { grid-column: 1; }.hud-clock { grid-column: 2 / 4; }.hud-countdown { grid-column: 4; }
+ .hud-stat { min-height: 48em; }.hud-homes { border-left: 0; }
+ .hud-footer { padding-left: 145em; padding-right: 48em; gap: 15em; }.hud-title { font-size: 29em; }.hud-description { font-size: 21em; }
+}
+@media (max-width: 600px) {
+ :root { --hud-unit: .7px; --hud-top: 102px; --hud-bottom: 83px; }
+ .hud-top { padding: 5em 13em 7em; gap: 6em 4em; grid-template-columns: minmax(0,1.15fr) minmax(0,.85fr) minmax(0,.85fr) minmax(0,1.15fr); }
+ .hud-top::before,.hud-top::after { display: none; }
+ .hud-night { gap: 2em; }.hud-moon { font-size: .7em; }.hud-night strong { font-size: 24em; }
+ .hud-clock { grid-column: 2 / 4; height: 44em; }.hud-countdown { padding: 10em 2em; }.hud-countdown span { font-size: 20em; }
+ .hud-stat { flex-wrap: wrap; gap: 2em; min-height: 65em; align-content: center; }.hud-stat span:not(.hud-sprite) { font-size: 20em; }.hud-stat > .hud-sprite { font-size: .72em; }
+ .hud-homes { flex-wrap: nowrap; }.hud-pips { gap: 5em; }.hud-pips i { width: 18em; height: 18em; }.hud-hunger { flex-direction: column; gap: 8em; }
+ .hud-footer { height: 112em; padding: 10em 23em 10em 112em; }.hud-crest { left: 18em; bottom: 15em; font-size: .85em; }
+ .hud-context { max-width: 100%; flex: 1; }.hud-title { font-size: 29em; white-space: normal; }.hud-description { font-size: 21em; line-height: 1.2; }.hud-rule,.hud-movement { display: none; }
+ .hud-title-row { gap: 12em; flex-wrap: wrap; }.hud-action > span { font-size: 22em; }
+}
+@media (max-width: 360px) {
+ .hud-moon { font-size: .6em; }.hud-night strong { font-size: 20em; }.hud-countdown span { font-size: 17em; }
+ .hud-stat span:not(.hud-sprite) { font-size: 18em; }.hud-homes > .hud-sprite { font-size: .6em; }
+}
+@media (max-height: 480px) and (min-width: 601px) { :root { --hud-unit: .65px; --hud-top: 86px; } .hud-footer { height: 76em; } }

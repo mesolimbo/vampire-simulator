@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="90" viewBox="0 0 640 90">
+<defs><linearGradient id="wood" x2="0" y2="1"><stop stop-color="#362019"/><stop offset=".18" stop-color="#241313"/><stop offset=".55" stop-color="#170e10"/><stop offset=".8" stop-color="#2b1815"/><stop offset="1" stop-color="#160e0c"/></linearGradient><filter id="grain"><feTurbulence baseFrequency=".008 .45" numOctaves="3" seed="17"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".035"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter></defs>
+<path fill="url(#wood)" filter="url(#grain)" d="M0 0h640v90H0z"/>
+<g stroke="#8e592e" opacity=".22"><path d="M0 12Q160 16 320 10T640 12M0 29Q180 21 380 28T640 25M0 58Q180 50 320 60T640 56M0 76Q180 69 400 75T640 74"/><path d="M0 33h640M0 66h640" stroke="#090607"/></g></svg>
+

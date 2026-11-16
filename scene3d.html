@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vampire Simulator: 3D asset preview</title>
+<script defer src="assets/hud/hud.js"></script>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f14; font: 13px/1.4 system-ui, "Segoe UI", sans-serif; color: #e8e4da; }
   canvas { display: block; }
@@ -25,11 +26,29 @@
   #panel.min { padding: 4px; background: rgba(18, 16, 22, .45); border-color: transparent; }
   #panel.min > :not(.head), #panel.min strong { display: none; }
 </style>
+<link rel="stylesheet" href="assets/hud/hud.css">
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
 </script>
 </head>
 <body>
+<div class="hud" aria-label="Game status">
+  <header class="hud-bar hud-top" aria-label="Town status">
+    <div class="hud-night"><span class="hud-sprite hud-moon" aria-hidden="true"></span><strong id="hudNight">Night 1</strong></div>
+    <div class="hud-clock" role="img" aria-label="Night and day cycle"><i class="hud-pointer" aria-hidden="true"></i></div>
+    <div class="hud-countdown"><span id="hudCountdown">Dawn in 55s</span></div>
+    <div class="hud-stat hud-homes"><span class="hud-sprite hud-house" aria-hidden="true"></span><div><span><b id="hudClean">16</b> Clean</span><span class="cursed"><b id="hudCursed">0</b> Cursed</span></div></div>
+    <div class="hud-stat"><span class="hud-sprite hud-bat" aria-hidden="true"></span><span>Vampires <b id="hudVampires">0</b></span></div>
+    <div class="hud-stat"><span class="hud-sprite hud-hat" aria-hidden="true"></span><span>Hunters <b id="hudHunters">1</b></span></div>
+    <div class="hud-stat hud-hunger"><span>Hunger</span><div class="hud-pips" role="img" aria-label="Blood: 3 of 3, fully fed"><i class="full"></i><i class="full"></i><i class="full"></i></div></div>
+  </header>
+  <footer class="hud-bar hud-footer" aria-label="Current location">
+    <span class="hud-sprite hud-crest" aria-hidden="true"></span>
+    <div class="hud-context" role="status"><div class="hud-title-row"><h1 class="hud-title" id="hudTitle">The Crypt</h1><div class="hud-action" aria-label="Reference artwork action prompt"><kbd><span>E</span></kbd><span>Enter</span></div></div><p class="hud-description" id="hudDescription">Night 1. You leave the crypt.</p></div>
+    <div class="hud-rule" aria-hidden="true"></div>
+    <div class="hud-movement" aria-label="W A S D or arrow keys to move"><div class="hud-keys" aria-hidden="true"><kbd><span>W</span></kbd><kbd><span>A</span></kbd><kbd><span>S</span></kbd><kbd><span>D</span></kbd></div><span>Move</span></div>
+  </footer>
+</div>
 <div id="loading" role="status" aria-live="polite">
   <h1>Vampire Simulator</h1>
   <div class="bar"><div class="fill" id="loadFill"></div></div>
@@ -890,7 +909,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   });
   window.stepPeople = (dt) => { for (const f of people) f(Math.min(dt, 0.05)); };
   const keys = new Set(), MOVE = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
-  addEventListener('keydown', (e) => { if (MOVE.includes(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) { keys.add(e.code); e.preventDefault(); following = true; } });
+  addEventListener('keydown', (e) => { if (e.target.closest('input, select, textarea, button')) return; if (MOVE.includes(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) { keys.add(e.code); e.preventDefault(); following = true; } });
   addEventListener('keyup', (e) => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
   let following = true;   // the camera starts on the player, as the game does
@@ -929,6 +948,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   scene.background = sky; scene.fog = new THREE.Fog(0x000000, 230, 430);
   let timeLabel = '';
   function setTime(h) {
+    window.hud?.setTime(h, NIGHT_S, DAY_S);
     const sunAng = (h - 6) / 12 * Math.PI, sunUp = Math.sin(sunAng);            // 1 at noon, -1 at midnight
     const moonUp = -sunUp;   // the moon is opposite the sun
     night = 1 - sstep(-0.18, 0.16, sunUp);
