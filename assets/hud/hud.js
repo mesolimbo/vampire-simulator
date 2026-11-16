@@ -16,20 +16,31 @@
       document.querySelector('.hud-pips').setAttribute('aria-label', `Blood: ${blood} of 3${blood === 3 ? ', fully fed' : blood === 0 ? ', starving' : ''}`);
       document.querySelectorAll('.hud-pips i').forEach((pip, i) => pip.classList.toggle('full', i < blood));
     },
-    setTime(hour, nightSeconds = 60, daySeconds = 50) {
+    // The game passes its own night number, and how close to dawn the countdown should turn red; the preview counts
+    // nights itself and only warns before dusk.
+    setTime(hour, nightSeconds = 60, daySeconds = 50, nightNumber, dawnWarning = 0) {
       if (fixture === '1' || fixture === '2') return;
       if (lastHour !== undefined && lastHour < 18 && hour >= 18) night++;
       lastHour = hour;
+      if (nightNumber) night = nightNumber;
       const day = hour >= 6 && hour < 18;
       const remaining = day ? (18 - hour) / 12 * daySeconds : ((6 - hour + 24) % 24) / 12 * nightSeconds;
       document.querySelector('.hud-moon').dataset.phase = day ? 'day' : 'night';
-      document.querySelector('.hud-countdown').classList.toggle('is-warning', day && remaining > 0 && remaining <= 5);
+      document.querySelector('.hud-countdown').classList.toggle('is-warning', remaining > 0 && remaining <= (day ? 5 : dawnWarning));
       put('hudNight', `${day ? 'Day' : 'Night'} ${night}`);
       put('hudCountdown', `${day ? 'Dusk' : 'Dawn'} in ${Math.ceil(remaining)}s`);
       pointer.style.setProperty('--progress', `${8 + ((hour + 6) % 24) / 24 * 84}%`);
       pointer.setAttribute('aria-label', `Day and night cycle, ${Math.floor(hour)}:${String(Math.floor(hour % 1 * 60)).padStart(2, '0')}`);
     },
     setContext: context,
+    // The key prompt beside the footer title, e.g. setAction('E', 'Knock'); no arguments hides it.
+    setAction(key, verb) {
+      const el = document.querySelector('.hud-action');
+      el.classList.toggle('on', !!key);
+      if (key) { put('hudActionKey', key); put('hudActionVerb', verb); }
+    },
+    // Pause or fast-forward, shown after the footer title; an empty string hides it.
+    setSpeed(text) { put('hudSpeed', text); },
   };
   window.hud.setCounters();
   if (fixture === '2') {

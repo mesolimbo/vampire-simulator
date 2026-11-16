@@ -2,7 +2,6 @@
 import functools
 import http.server
 import os
-import re
 import shutil
 import signal
 import socket
@@ -25,21 +24,21 @@ def listening(port):
 
 
 def build():
-    """The game is one HTML file, so building means checking that its script parses."""
-    html = (ROOT / "index.html").read_text(encoding="utf-8")
-    match = re.search(r"<script>(.*?)</script>", html, re.S)
-    if not match:
-        sys.exit("build failed: no <script> block in index.html")
-    BUILD.mkdir(exist_ok=True)
-    js = BUILD / "game.js"
-    js.write_text(match.group(1), encoding="utf-8")
+    """The game is plain script files, so building means checking that each one parses."""
     node = shutil.which("node")
     if not node:
         print("build: node not found, skipped the syntax check")
         return
-    if subprocess.run([node, "--check", str(js)]).returncode != 0:
-        sys.exit("build failed: syntax error in index.html script")
-    print("build: index.html script parses")
+    BUILD.mkdir(exist_ok=True)
+    for name in ["sim.js", "render2d.js", "ui.js", "main.js", "assets/hud/hud.js"]:
+        if subprocess.run([node, "--check", str(ROOT / name)]).returncode != 0:
+            sys.exit(f"build failed: syntax error in {name}")
+    # The 3D renderer is an ES module; node checks it as one only under the .mjs extension.
+    module = BUILD / "render3d.mjs"
+    module.write_text((ROOT / "render3d.js").read_text(encoding="utf-8"), encoding="utf-8")
+    if subprocess.run([node, "--check", str(module)]).returncode != 0:
+        sys.exit("build failed: syntax error in render3d.js")
+    print("build: every script parses")
 
 
 def start(port):

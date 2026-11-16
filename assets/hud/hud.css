@@ -34,6 +34,8 @@
 .hud-description { margin: calc(5 * var(--hud-unit)) 0 0; font-size: 24em; color: #e7cca0; line-height: 1.1; }
 .hud-action { display: none; align-items: center; gap: 14em; white-space: nowrap; }.hud-action > span { font-size: 26em; }
 .hud[data-fixture="1"] .hud-action { display: flex; }
+.hud-action.on { display: flex; }
+.hud-speed { font-size: 24em; color: #9fe0a8; white-space: nowrap; }.hud-speed:empty { display: none; }
 .hud-rule { flex: 1; min-width: 30em; height: 3em; background: linear-gradient(90deg,transparent,#d6a957 35%,#d6a957 65%,transparent); position: relative; box-shadow: 0 2em 1em #090707; }.hud-rule::after { content: ''; position: absolute; left: 50%; top: -5em; width: 10em; height: 10em; background: #921c2f; border: 2em solid #d2a050; transform: rotate(45deg); box-shadow: 0 0 0 2em #26100d; }
 .hud-movement { display: flex; align-items: center; gap: 12em; white-space: nowrap; }.hud-movement span { font-size: 26em; }.hud-keys { display: flex; gap: 5em; }
 .hud kbd { display: inline-flex; width: 32em; height: 33em; justify-content: center; align-items: center; border: 2em solid #bb9148; border-radius: 6em; background: linear-gradient(120deg,#4e3020,#170e0b 50%,#392419); box-shadow: inset 0 0 0 1em #ffe3a2, 0 2em 3em #000; font: inherit; }.hud kbd span { font-size: 26em; }
