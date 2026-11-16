@@ -140,9 +140,15 @@ For a character with a skeleton, one Comfy Cloud graph does it: `LoadImage` (the
 
 Then in Blender: delete the stray helper sphere Tripo adds, set the materials non-metallic, turn the model so it faces glTF +Z (Tripo returned it facing sideways), scale it to height with the feet at y = 0, and export GLB with WebP textures. Download outputs promptly: links for finished jobs can 404 if the account's assets are cleared.
 
+A cape or coat with a separate lining is the hardest part to skin: wherever the outer cloth and the lining get different weights, the lining shows through as the body bends. Give everything below the shoulders and away from the legs one smooth rule of height (thighs swaying the hem, then hips, waist and spine going up), blended in from the original weights so no seam forms. Damping the hip twist in the walk helps too.
+
 Check loose clothing from behind in a test pose. Tripo weighted the vampire's cape partly to the arms, so lowering them flared it out, and split its back between the two thighs, so a step tore it down the middle. The fix: below the shoulders and more than 20 cm from the arm bones, drop the arm weights; behind the legs and more than 12 cm from the leg bones, share the leg weight evenly between both thighs, fading in over 25 cm below the hip so no crease forms. Choose vertices by distance to the bones, not by a box: a box also catches the underside of the sleeves and the backs of the legs.
 
 Simple loops such as an idle are quicker to key in Blender than to fetch from Tripo, and they keep any local weight fixes. Key bone rotations about armature-space axes (rest rotation inverted, times the axis rotation, times the rest rotation), add a Cycles modifier to every curve, and export with animations on. In Blender 5 an action's curves sit under `action.layers[].strips[].channelbags[].fcurves`, not `action.fcurves`.
+
+For more than one clip in a file, export each action on its own (set it active with its slot, mode `ACTIVE_ACTIONS`) and join the files with pygltflib. Exporting several actions or NLA tracks in one go wrote every clip as a frozen copy of the rest pose. Before each export, reset every pose bone to rest, or bones the clip does not key keep the last clip's pose. Check exported clips by measuring how much a key bone's track varies, not by eye.
+
+A walk cycle that covers a fixed stride per loop stays in step with the ground when played at `speed / stride` loops a second. Store the stride on the armature as a custom property (exported as extras). In three.js, `crossFadeTo` scales the target action's weight, so set it to 1 before fading in, or the walk plays at weight 0. When a walk swings the feet, move the weights of loose hems away from the shins and feet onto the thighs, or the hems flick out with the feet.
 
 ## 5. Clean up in Blender when you need quads
 

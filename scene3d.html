@@ -742,29 +742,88 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
     return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
   })();
   const contactGeo = new THREE.PlaneGeometry(1.4, 1.4).rotateX(-Math.PI / 2).translate(0, 0.02, 0);
-  function character(model) {
-    model.traverse((o) => { if (o.isSkinnedMesh) { o.frustumCulled = false; o.castShadow = true; o.receiveShadow = true; } });
-    const idle = model.userData.animations.find((a) => a.name === 'Idle');
-    if (idle) { const mixer = new THREE.AnimationMixer(model); mixer.clipAction(idle).play(); mixer.setTime(Math.random() * idle.duration); mixers.push(mixer); }
+  // Walk is one cycle (two steps) per second of clip time and covers walk_stride metres at the model's own scale, so
+  // playing it at speed / (stride * CHAR_SCALE) loops a second keeps the feet in step with the ground.
+  function character(model, speed) {
+    let stride = 0;
+    model.traverse((o) => {
+      if (o.isSkinnedMesh) { o.frustumCulled = false; o.castShadow = true; o.receiveShadow = true; }
+      if (o.userData.walk_stride) stride = o.userData.walk_stride;
+    });
+    const clip = (name) => model.userData.animations.find((a) => a.name === name);
+    const mixer = new THREE.AnimationMixer(model);
+    const idle = mixer.clipAction(clip('Idle')), walk = mixer.clipAction(clip('Walk'));
+    walk.timeScale = speed / (stride * CHAR_SCALE);
+    idle.play();
+    mixer.setTime(Math.random() * 4);
+    mixers.push(mixer);
+    let moving = false;
     const g = new THREE.Group(); model.scale.setScalar(CHAR_SCALE); g.add(model);
+    // Crossfade between standing and walking over a fifth of a second.
+    g.userData.setMoving = (m) => {
+      if (m === moving) return;
+      moving = m;
+      const from = m ? idle : walk, to = m ? walk : idle;
+      to.reset().setEffectiveWeight(1).play();   // fades scale the action's weight, so it must start at 1
+      from.crossFadeTo(to, 0.2, false);
+    };
     g.add(new THREE.Mesh(contactGeo, contactMat));   // soft dark spot under the feet: the sun's shadow map is too coarse to ground them
     return g;
   }
-  const pawn = character(loaded['characters/player']);
-  const standAt = (obj, x, z, yaw) => { obj.position.set(x, groundY(x, z), z); obj.rotation.y = yaw; scene.add(obj); };
+  const pawn = character(loaded['characters/player'], 150 * 3 / 32);
   const walker = { x: yard.x, z: yard.z - 4 + 0.33 * CRYPT_SCALE + 2.2 };   // starts on the crypt's doorstep
   const SPEED = 150 * 3 / 32, TOWN_X = 92, TOWN_Z = 60;   // walkable area: past the southernmost doors, with room to walk round every home
   const solids = [...homes.map(([x, z]) => ({ x, z, r: 4.7 })), { x: churchAt[0], z: churchAt[1], r: 6.2 }, { x: yard.x, z: yard.z - 4, r: 3.5 }, ...tombs, ...trunks];
-  window.sceneDebug = { trunks, tombs, walker, pawn };   // for checking collisions from the console
+  window.sceneDebug = { trunks, tombs, walker, pawn, churchAt, yard };   // for checking collisions from the console
   const onBridge = (x, z) => Math.abs(x) < RIVER_HALF + 3 && roadDist(x, z) < BRIDGE_HALF - 0.9;
   const canStand = (x, z) => Math.abs(x) <= TOWN_X && Math.abs(z) <= TOWN_Z && (Math.abs(x) > RIVER_HALF + 0.4 || onBridge(x, z)) && solids.every((o) => Math.hypot(x - o.x, z - o.z) > o.r);
   const groundY = (x, z) => onBridge(x, z) ? Math.max(heightAt(x, z), 0.42 * sstep(RIVER_HALF + 3, RIVER_HALF, Math.abs(x)) + 0.02) : roadDist(x, z) < ROAD_HALF ? roadTop(x, z) + crown(x, z) + 0.04 : mulchTop(x, z);
   pawn.position.set(walker.x, groundY(walker.x, walker.z), walker.z); scene.add(pawn);
-  // The convert stands by the crypt door; the two hunters stand in front of the house of worship.
-  standAt(character(loaded['characters/convert']), yard.x + 3.2, yard.z - 4 + 0.33 * CRYPT_SCALE + 1.4, -0.4);
-  const front = churchAt[1] + 8;
-  standAt(character(loaded['characters/hunter']), churchAt[0] - 1.6, front, 0.15);
-  standAt(character(loaded['characters/converted_hunter']), churchAt[0] + 1.6, front + 0.4, -0.25);
+  // ---- People about town ----
+  // The convert wanders the graveyard at the game's vampire speed: she picks a free spot, walks to it, and stands a
+  // moment. The hunters walk circles round the house of worship at the game's hunter speed, one ring wider than the
+  // other and in the opposite direction.
+  const VAMP_SPEED = 95 * 3 / 32, HUNTER_SPEED = 120 * 3 / 32;
+  const people = [];
+  const face = (obj, dx, dz) => { obj.rotation.y = Math.atan2(dx, dz); };
+  {
+    const convert = character(loaded['characters/convert'], VAMP_SPEED); scene.add(convert);
+    const crypt = { x: yard.x, z: yard.z - 4 };
+    const freeSpot = (x, z) => Math.hypot(x - crypt.x, z - crypt.z) > 5 && tombs.every((s) => Math.hypot(x - s.x, z - s.z) > s.r + 0.4);
+    const me = { x: yard.x + 3.2, z: crypt.z + 0.33 * CRYPT_SCALE + 1.4, tx: 0, tz: 0, wait: 1 };
+    const pick = () => {
+      for (let n = 0; n < 50; n++) {
+        const x = yard.x + (Math.random() * 2 - 1) * (yard.w / 2 - 3), z = yard.z + (Math.random() * 2 - 1) * (yard.d / 2 - 3);
+        if (freeSpot(x, z)) { me.tx = x; me.tz = z; return; }
+      }
+    };
+    pick();
+    people.push((dt) => {
+      if (me.wait > 0) { me.wait -= dt; convert.userData.setMoving(false); }
+      else {
+        const dx = me.tx - me.x, dz = me.tz - me.z, d = Math.hypot(dx, dz), step = VAMP_SPEED * dt;
+        if (d <= step) { me.x = me.tx; me.z = me.tz; me.wait = 1 + Math.random() * 2.5; pick(); }
+        else {
+          const nx = me.x + dx / d * step, nz = me.z + dz / d * step;
+          if (freeSpot(nx, nz)) { me.x = nx; me.z = nz; face(convert, dx, dz); convert.userData.setMoving(true); }
+          else { pick(); }   // a tombstone in the way: choose somewhere else
+        }
+      }
+      convert.position.set(me.x, groundY(me.x, me.z), me.z);
+    });
+  }
+  [['characters/hunter', 11, 1], ['characters/converted_hunter', 16, -1]].forEach(([name, radius, dir], k) => {
+    const h = character(loaded[name], HUNTER_SPEED); scene.add(h);
+    let a = k * Math.PI;   // start on opposite sides
+    h.userData.setMoving(true);
+    people.push((dt) => {
+      a += dir * HUNTER_SPEED / radius * dt;
+      const x = churchAt[0] + Math.cos(a) * radius, z = churchAt[1] + Math.sin(a) * radius;
+      face(h, -Math.sin(a) * dir, Math.cos(a) * dir);
+      h.position.set(x, groundY(x, z), z);
+    });
+  });
+  window.stepPeople = (dt) => { for (const f of people) f(Math.min(dt, 0.05)); };
   const keys = new Set(), MOVE = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
   addEventListener('keydown', (e) => { if (MOVE.includes(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) { keys.add(e.code); e.preventDefault(); following = true; } });
   addEventListener('keyup', (e) => keys.delete(e.code));
@@ -782,7 +841,8 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
       if (canStand(nx, nz)) { walker.x = nx; walker.z = nz; } else if (canStand(nx, walker.z)) walker.x = nx; else if (canStand(walker.x, nz)) walker.z = nz;   // slide along obstacles
       pawn.rotation.y = Math.atan2(dx, dz);
     }
-    pawn.position.set(walker.x, groundY(walker.x, walker.z), walker.z);   // no bob: a character without a walk cycle would seem to float
+    pawn.position.set(walker.x, groundY(walker.x, walker.z), walker.z);
+    pawn.userData.setMoving(!!(ix || iy));
     if (!following) return;
     const k = 1 - Math.pow(1 - 0.12, Math.min(dt, 0.1) * 60);
     const mx = (walker.x - controls.target.x) * k, mz = (walker.z - controls.target.z) * k, my = (pawn.position.y - controls.target.y) * k;
@@ -869,6 +929,7 @@ function tick() {
   if (window.stepCross) window.stepCross(dt);
   if (window.stepTime) window.stepTime(dt);
   if (window.stepWalk) window.stepWalk(dt);
+  if (window.stepPeople) window.stepPeople(dt);
   for (const m of mixers) m.update(Math.min(dt, 0.1));
   controls.update();
   {   // panning stays inside the play area, so the view never reaches the edge of the map
