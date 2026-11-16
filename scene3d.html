@@ -617,8 +617,10 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
     const useSun = sunUp > 0, ang = useSun ? sunAng : sunAng - Math.PI, up = Math.max(0.14, useSun ? sunUp : moonUp);
     const flat = Math.sqrt(Math.max(0, 1 - up * up));
     sunDir.set(Math.cos(ang) * flat * 200, up * 200, (0.35 + 0.45 * up) * 120);
-    if (useSun) { sun.color.copy(SUN.low).lerp(SUN.high, clamp01(sunUp / 0.45)); sun.intensity = 0.9 + 1.8 * sstep(0, 0.3, sunUp); }
-    else { sun.color.copy(SUN.moon); sun.intensity = 1.2 + 1.0 * sstep(0, 0.3, moonUp); }
+    // The sun fades out as it sets and the moon fades in as it rises, so the swap at the horizon happens in the dark
+    // and the sky and ambient light carry the change.
+    if (useSun) { sun.color.copy(SUN.low).lerp(SUN.high, clamp01(sunUp / 0.45)); sun.intensity = (0.9 + 1.8 * sstep(0, 0.3, sunUp)) * sstep(-0.02, 0.22, sunUp); }
+    else { sun.color.copy(SUN.moon); sun.intensity = (1.2 + 1.0 * sstep(0, 0.3, moonUp)) * sstep(0, 0.35, moonUp); }
     // sky and ambient
     sky.copy(SKY.day).lerp(SKY.night, clamp01(night)).lerp(SKY.dusk, clamp01(twilight * 0.8));
     scene.fog.color.copy(sky);
