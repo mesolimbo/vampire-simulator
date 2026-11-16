@@ -98,6 +98,55 @@ Object.assign(sun.shadow.camera, { left: -130, right: 130, top: 130, bottom: -13
 sun.shadow.bias = -0.0006;
 sun.shadow.normalBias = 0.05;
 scene.add(hemi, sun, sun.target);
+
+// ---- Night sky: a transparent half dome of twinkling stars around the point the camera looks at ----
+// Each star has its own size, brightness, tint and twinkle rate. uNight (0 by day, 1 at night) fades them in.
+const starUniforms = { uTime: { value: 0 }, uNight: { value: 0 }, uPixel: { value: 1 } };
+const stars = (() => {
+  const N = 4500, R = 600, pos = new Float32Array(N * 3), seed = new Float32Array(N * 4), tint = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    // From 25 degrees below the horizon to the zenith. The camera never looks far above the horizon, so the sky it
+    // shows is mostly the backdrop past the edge of the ground; the ground hides the low stars everywhere else.
+    // Most stars go in that low band, where they can be seen.
+    const LOW = Math.sin(-25 * Math.PI / 180), BAND = Math.sin(20 * Math.PI / 180);
+    const y = i < N * 0.8 ? LOW + Math.random() * (BAND - LOW) : BAND + Math.random() * (1 - BAND);
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - y * y);
+    pos.set([Math.cos(a) * r * R, y * R, Math.sin(a) * r * R], i * 3);
+    const bright = Math.pow(Math.random(), 3);   // mostly faint, a few bright
+    seed.set([3 + 5 * bright, 1.2 + 2.8 * bright, 0.6 + Math.random() * 2.6, Math.random() * Math.PI * 2], i * 4);   // size px, brightness, twinkle rate, phase
+    const warm = Math.random();
+    tint.set(warm < 0.15 ? [1, 0.85, 0.7] : warm > 0.8 ? [0.75, 0.85, 1] : [1, 1, 1], i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('seed', new THREE.BufferAttribute(seed, 4));
+  g.setAttribute('tint', new THREE.BufferAttribute(tint, 3));
+  const m = new THREE.ShaderMaterial({
+    uniforms: starUniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute vec4 seed; attribute vec3 tint;
+      uniform float uTime, uPixel;
+      varying vec3 vColor;
+      void main() {
+        float tw = 0.55 + 0.45 * sin(uTime * seed.z + seed.w) * sin(uTime * seed.z * 0.37 + seed.w * 2.1);
+        vColor = tint * seed.y * tw;
+        gl_PointSize = seed.x * uPixel * (0.85 + 0.3 * tw);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform float uNight;
+      varying vec3 vColor;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        float a = smoothstep(1.0, 0.0, d); a *= a;
+        gl_FragColor = vec4(vColor * a * uNight, 1.0);
+      }`,
+  });
+  const p = new THREE.Points(g, m);
+  p.frustumCulled = false; p.renderOrder = -1;
+  scene.add(p);
+  return p;
+})();
 const sunDir = new THREE.Vector3(-70, 120, 60);   // from the subject toward the light; set by the time of day
 let shadowHalf = 0;
 function aimShadows() {
@@ -612,6 +661,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
     const sunAng = (h - 6) / 12 * Math.PI, sunUp = Math.sin(sunAng);            // 1 at noon, -1 at midnight
     const moonUp = -sunUp;   // the moon is opposite the sun
     night = 1 - sstep(-0.18, 0.16, sunUp);
+    starUniforms.uNight.value = sstep(0.4, 0.95, night);   // stars only once the sky has darkened
     const twilight = Math.max(0, 1 - Math.abs(sunUp) / 0.32);
     // light body: sun while it is up, else moon
     const useSun = sunUp > 0, ang = useSun ? sunAng : sunAng - Math.PI, up = Math.max(0.14, useSun ? sunUp : moonUp);
@@ -677,6 +727,9 @@ function tick() {
     const t = controls.target, cx = Math.min(92, Math.max(-92, t.x)) - t.x, cz = Math.min(60, Math.max(-60, t.z)) - t.z;
     if (cx || cz) { t.x += cx; t.z += cz; camera.position.x += cx; camera.position.z += cz; }
   }
+  stars.position.set(controls.target.x, 0, controls.target.z);
+  starUniforms.uTime.value = clock.elapsedTime;
+  starUniforms.uPixel.value = renderScale;
   if (frames % 6 === 0) window.syncCamSliders();
   if (scene.fog) { const d = camera.position.distanceTo(controls.target); scene.fog.near = d + 70; scene.fog.far = d + 200; }
   aimShadows();
