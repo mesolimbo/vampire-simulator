@@ -173,7 +173,10 @@ const mapTex = (path, srgb = true) => { const t = texLoader.load(T + path); t.fl
 const tileTex = (path, repeat, srgb = true) => { const t = texLoader.load(T + path); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
 
 function mulberry(seed) { return () => { let t = seed += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const rnd = mulberry(20261115);
+// A new map every load, as in the 2D game; ?seed=N rebuilds one.
+const mapSeed = parseInt(new URLSearchParams(location.search).get('seed'), 10) || 1 + Math.floor(Math.random() * 1e9);
+const rnd = mulberry(mapSeed);
+console.log(`Map seed ${mapSeed}. Add ?seed=${mapSeed} to the URL to build this map again.`);
 
 function shadows(obj, cast = true, receive = true) { obj.traverse((o) => { if (o.isMesh) { o.castShadow = cast; o.receiveShadow = receive; } }); return obj; }
 
@@ -273,16 +276,45 @@ diffuseColor.a = mix(0.25, 0.75, wDeep);`).replace('#include <normal_fragment_ma
 
   let night = 0;   // 0 in full daylight, 1 in full night; set by the time slider
 
-  // ---- Layout ----
+  // ---- Layout: drawn from the map seed, by the 2D game's rules ----
+  // The river runs north to south through the middle. Each road crosses it at a random point and angle, steep enough
+  // for a short bridge, and the two bridges stay well apart. The house of worship stands at the far side of one bank
+  // and the graveyard at the far side of the other; homes go anywhere dry, off the roads and apart. A draw that does
+  // not fit is redrawn.
   // A road is a line through `at` with heading `deg` (0 runs east to west, straight across the river).
-  const roads = [{ at: [0, -12], deg: 0 }, { at: [0, 14], deg: 20 }];
-  const roadDist = (x, z) => Math.min(...roads.map((r) => { const a = r.deg * Math.PI / 180; return Math.abs((x - r.at[0]) * Math.sin(a) - (z - r.at[1]) * Math.cos(a)); }));
-  const homes = [
-    [20, -30, 'yellow'], [38, -31, 'yellow'], [24, 4, 'red'], [44, 5, 'yellow'], [68, 4, 'clean'], [30, 38, 'decayedOrange'], [52, 46, 'yellow'], [72, 26, 'decayed', true],
-    [-20, -30, 'yellow'], [-40, -32, 'clean'], [-22, 22, 'decayedRed'], [-24, 46, 'decayed'], [-78, 10, 'decayedOrange'],
-  ];
-  const churchAt = [60, -42], HILL = 2;
-  const yard = { x: -54, z: 32, w: 32, d: 28 };
+  const HILL = 2, HOMES = 13;
+  let roads, homes, churchAt, yard;
+  const lineDist = (r, x, z) => { const a = r.deg * Math.PI / 180; return Math.abs((x - r.at[0]) * Math.sin(a) - (z - r.at[1]) * Math.cos(a)); };
+  const roadDist = (x, z) => Math.min(...roads.map((r) => lineDist(r, x, z)));
+  const KINDS = ['yellow', 'yellow', 'yellow', 'yellow', 'clean', 'clean', 'red', 'decayed', 'decayedOrange', 'decayedRed'];
+  for (let attempt = 0; ; attempt++) {
+    if (attempt > 500) throw new Error(`No layout fits seed ${mapSeed}`);
+    roads = [0, 1].map(() => ({ at: [0, -40 + rnd() * 80], deg: (rnd() * 2 - 1) * 38 }));
+    if (Math.abs(roads[0].at[1] - roads[1].at[1]) < 24) continue;   // bridges at least 8 tiles apart
+    const ta = Math.tan(roads[0].deg * Math.PI / 180), tb = Math.tan(roads[1].deg * Math.PI / 180);
+    if (Math.abs(ta - tb) > 1e-3 && Math.abs((roads[1].at[1] - roads[0].at[1]) / (ta - tb)) < RIVER_HALF + 25) continue;   // roads must not meet at a bridge
+    const bank = rnd() < 0.5 ? 1 : -1;
+    churchAt = [bank * (56 + rnd() * 16), -46 + rnd() * 92];
+    if (roads.some((r) => lineDist(r, ...churchAt) < 18)) continue;
+    yard = { x: -bank * (50 + rnd() * 14), z: -38 + rnd() * 76, w: 32, d: 28 };
+    let yardClear = true;
+    for (let u = -1; u <= 1.001; u += 0.25) for (let w = -1; w <= 1.001; w += 0.25) if (roadDist(yard.x + u * (yard.w / 2 + 4), yard.z + w * (yard.d / 2 + 4)) < ROAD_HALF + 4) yardClear = false;
+    if (!yardClear) continue;
+    homes = [];
+    for (let tries = 0; tries < 800 && homes.length < HOMES; tries++) {
+      const side = rnd() < 0.5 ? 1 : -1, x = side * (RIVER_HALF + 12 + rnd() * (80 - RIVER_HALF - 12)), z = -50 + rnd() * 100;
+      if (roadDist(x, z) < 10) continue;
+      if (Math.hypot(x - churchAt[0], z - churchAt[1]) < 24) continue;
+      if (Math.abs(x - yard.x) < yard.w / 2 + 8 && Math.abs(z - yard.z) < yard.d / 2 + 8) continue;
+      if (homes.some(([hx, hz]) => Math.hypot(x - hx, z - hz) < 16)) continue;
+      homes.push([x, z, KINDS[Math.floor(rnd() * KINDS.length)]]);
+    }
+    if (homes.length < HOMES) continue;
+    const decayed = homes.filter((h) => h[2] === 'decayed');
+    if (decayed.length) decayed[Math.floor(rnd() * decayed.length)][3] = true;   // one empty home with its door open
+    break;
+  }
+  const NX = rnd() * 100, NZ = rnd() * 100;   // shifts the terrain noise, so the hills differ too
 
   // ---- Terrain height ----
   // Rolling ground: broad swells of a few metres with smaller bumps on top, sinking to the river banks. The house of
@@ -294,8 +326,8 @@ diffuseColor.a = mix(0.25, 0.75, wDeep);`).replace('#include <normal_fragment_ma
   const YARD_RISE = 1.3, MOUND = 1.25, CROWN = 0.45;
   const valley = (x) => sstep(RIVER_HALF + 0.6, RIVER_HALF + 18, Math.abs(x));
   const edge = (x, z) => 1 - sstep(135, 168, Math.max(Math.abs(x), Math.abs(z)));   // the land flattens to zero at the border, to meet the flat skirt beyond it
-  const swell = (x, z) => ((vnoise(x / 58 + 3, z / 58) - 0.5) * 5.2 + (vnoise(x / 24 + 9, z / 24 + 4) - 0.5) * 1.8 + 0.5) * valley(x) * edge(x, z);
-  const bumps = (x, z) => (vnoise(x / 9 + 2, z / 9 + 7) - 0.5) * 0.45 * valley(x) * edge(x, z);
+  const swell = (x, z) => ((vnoise(x / 58 + NX, z / 58 + NZ) - 0.5) * 5.2 + (vnoise(x / 24 + 9 + NX, z / 24 + 4 + NZ) - 0.5) * 1.8 + 0.5) * valley(x) * edge(x, z);
+  const bumps = (x, z) => (vnoise(x / 9 + 2 + NX, z / 9 + 7 + NZ) - 0.5) * 0.45 * valley(x) * edge(x, z);
   const rises = (x, z) => HILL * (1 - sstep(6, 20.5, Math.hypot(x - churchAt[0], z - churchAt[1]))) + YARD_RISE * (1 - sstep(15, 34, Math.hypot(x - yard.x, z - yard.z)));
   const base = (x, z) => swell(x, z) + bumps(x, z) + rises(x, z);
   // Height of the road surface at a point: the smooth land under the nearest point of the road's centre line, plus the mound.
