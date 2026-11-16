@@ -134,6 +134,16 @@ The result is triangles only, with no edge loops. For a model that needs quads, 
 - Hunyuan3D retopology and UV (`TencentSmartTopologyNode`, `TencentModelTo3DUVNode`): Comfy Cloud refuses GLB uploads, so chain these onto the TRELLIS graph in one workflow. Use `Get3DComponents` to turn the OBJ back into a mesh, then the template's bake nodes to texture it. Face count is low, medium or high only.
 - Tripo P2 with `model.quad` true: it returns FBX only, so wire output slot 2 to the save node. The stock template wires the GLB output and fails.
 
+## Rigged characters
+
+For a character with a skeleton, one Comfy Cloud graph does it: `LoadImage` (the T-pose) into `TripoPSeriesImageToModelNode` (P2, `face_limit` 20000, quad off), its task id into `TripoRigNode` (`v1.0`, `biped`, spec `tripo`), and the rig's GLB output into `Save3DAdvanced`. About 285 credits per character in November 2026. It gave a 41-bone humanoid skeleton with every vertex weighted, and the coats, capes and skirts bent cleanly in a test pose.
+
+Then in Blender: delete the stray helper sphere Tripo adds, set the materials non-metallic, turn the model so it faces glTF +Z (Tripo returned it facing sideways), scale it to height with the feet at y = 0, and export GLB with WebP textures. Download outputs promptly: links for finished jobs can 404 if the account's assets are cleared.
+
+Check loose clothing from behind in a test pose. Tripo weighted the vampire's cape partly to the arms, so lowering them flared it out, and split its back between the two thighs, so a step tore it down the middle. The fix: below the shoulders and more than 20 cm from the arm bones, drop the arm weights; behind the legs and more than 12 cm from the leg bones, share the leg weight evenly between both thighs, fading in over 25 cm below the hip so no crease forms. Choose vertices by distance to the bones, not by a box: a box also catches the underside of the sleeves and the backs of the legs.
+
+Simple loops such as an idle are quicker to key in Blender than to fetch from Tripo, and they keep any local weight fixes. Key bone rotations about armature-space axes (rest rotation inverted, times the axis rotation, times the rest rotation), add a Cycles modifier to every curve, and export with animations on. In Blender 5 an action's curves sit under `action.layers[].strips[].channelbags[].fcurves`, not `action.fcurves`.
+
 ## 5. Clean up in Blender when you need quads
 
 TRELLIS output is dense, triangulated and split along UV seams. For a rigged or deforming model, retopologize it by hand.
