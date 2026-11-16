@@ -117,6 +117,7 @@ The account runs one of these jobs at a time, so a batch finishes in sequence.
 Render the game mesh before you accept it. The template's decimation held up on a plain cottage and on flat doors, but it tore the base, arches and doorway of two ornate buildings at both 10,000 and 25,000 triangles, while their raw masters were clean. For a model like that, build the game mesh from the raw master in headless Blender (`blender -b --python`), one model per process:
 
 1. Build a shrink-wrapped envelope rather than decimating the master directly. On the church this gave a closed, straight 22,000-triangle mesh that matched the master, where a decimate or quad remesh had left holes and bowed walls:
+   1. If the master's walls are see-through (tracery, a slot under the eaves), first add a solid core inside it, just behind the walls and under the roof, coloured like the wall in shade. Use the master plus core as the bake source too. Find the walls' inner faces by casting rays through the model.
    1. Copy the master and thicken it inward with Solidify (about two voxels, offset -1). Leave Even Thickness off: it throws sharp corners far outward, and the remesh balloons.
    1. Voxel remesh at a fine size (0.006 on a 1-unit model) so thin parts such as a cross and spires survive. A coarse voxel punches holes through thin walls.
    1. Shrinkwrap onto the master: nearest surface point, outside surface.
@@ -126,7 +127,7 @@ Render the game mesh before you accept it. The template's decimation held up on 
 1. Unwrap with xatlas, not Smart UV Project. On a reduced TRELLIS mesh, Smart UV Project made about one island per two triangles (9,924 islands using 7% of the texture on a 20,000-triangle church). xatlas gave 3,631 islands using 42% on the same mesh, and 46 to 500 on simple props. Blender's Python has no xatlas, so dump the vertices and faces to JSON, run `xatlas` in an outside Python (`pip install xatlas`), and rebuild the mesh from its vertex map, faces and UVs. Count the islands afterwards: a model in the thousands for a simple shape means the unwrap failed.
 1. Bake with selected-to-active from the master: a normal bake, and the colour as an emission bake. The master's material is fully metallic, so a diffuse bake comes out black.
 1. Set the bake's max ray distance to 0 (no limit) and cage extrusion to about 3% of the model size, or patches miss.
-1. Carry an existing UV mask (window glow) across the same way: bake it from the old game mesh as emission onto the new UVs.
+1. Carry an existing UV mask (window glow) across the same way: bake it from the old game mesh as emission onto the new UVs. For a texture variant, bake both the variant and the old plain texture from the old mesh, and take only the texels where they differ onto the new base.
 
 The result is triangles only, with no edge loops. For a model that needs quads, use section 5, or one of the two Comfy Cloud quad paths, both of which left open edges and many more UV islands in the same test:
 
