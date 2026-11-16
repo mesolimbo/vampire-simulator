@@ -300,33 +300,12 @@ function drawTalk() {
 }
 
 function drawPanel(lines) {
-  ctx.fillStyle = 'rgba(6,6,12,.88)'; ctx.fillRect(0, 0, cv.width, cv.height);
+  if (VIEW_2D) { ctx.fillStyle = 'rgba(6,6,12,.88)'; ctx.fillRect(0, 0, cv.width, cv.height); }   // the 3D view dims with an HTML shade
   let y = 150;
   for (const [str, color, font, gap] of lines) {
     text(str, cv.width / 2, y, color || '#ddd', font || '16px monospace', 'center');
     y += gap || 28;
   }
-}
-
-function drawTitle() {
-  drawPanel([
-    ['VAMPIRE SIMULATOR', '#ff3b4e', 'bold 44px monospace', 30],
-    ['lo-fi playtest build', '#888', '14px monospace', 56],
-    ['WASD to move.  Walk up to a door and press W or E.', '#fff'],
-    ['The doorstep talk plays out by itself. Your first knock each night is 2 to 1 to get you in, the rest are even.', '#fff'],
-    ['A house you enter is cursed. After three nights it raises a vampire of its own.', null],
-    ['Sunlight kills. By day, shelter in the crypt or inside a cursed house.', null],
-    ['The town is new every game. Nobody can cross the river except by its two bridges.', null],
-    ['Each morning every hunter visits one random house and purges it if cursed. Long-cursed houses draw them more.', null],
-    ['The main hunter (gold) kills any vampire he finds, you included. No other hunter can kill you.', null],
-    ['A house purged by the main hunter sends him a new hunter. Converts retire at the second house they visit.', null],
-    ['Being invited in is feeding. Any vampire that goes three nights without it starves.', null],
-    ['A lesser vampire beats a recruit 2 to 1, and recruits die if they find you. Nobody reaches you in the crypt.', null],
-    ['One vampire to a house or crypt. Other vampires may take the crypt, or be home when you need a bed.', null],
-    ['Curse every other house and the vampires storm the house of worship. You only die for good with no cursed house left.', '#ffd86b', null, 50],
-    ['Hold Space: fast-forward    P: pause    R: restart', '#9aa'],
-    ['Press Enter to rise', '#ff3b4e', 'bold 22px monospace', 60],
-  ]);
 }
 
 function drawEnd() {
@@ -342,7 +321,7 @@ function drawEnd() {
 
 let drawnMap = 0;   // the map the 2D camera last snapped to
 function draw() {
-  if (mode === 'title') return drawTitle();
+  if (mode === 'title') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height); return; }   // under the HTML title screen
   if (drawnMap !== mapVersion) { drawnMap = mapVersion; aimCamera(true); }
   drawHud();
   aimCamera(false);
@@ -359,7 +338,7 @@ function draw() {
 // The 3D view keeps the top bar and footer in HTML, and draws only these on a transparent canvas over the scene.
 function drawOverlay() {
   ctx.clearRect(0, 0, cv.width, cv.height);
-  if (mode === 'title') return drawTitle();
+  if (mode === 'title') return;
   drawDeathBanner();
   if (talk) drawTalk();
   if (mode === 'over') drawEnd();

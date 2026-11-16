@@ -30,7 +30,7 @@ def build():
         print("build: node not found, skipped the syntax check")
         return
     BUILD.mkdir(exist_ok=True)
-    for name in ["sim.js", "render2d.js", "ui.js", "main.js", "assets/hud/hud.js"]:
+    for name in ["sim.js", "render2d.js", "ui.js", "audio.js", "menu.js", "main.js", "assets/hud/hud.js"]:
         if subprocess.run([node, "--check", str(ROOT / name)]).returncode != 0:
             sys.exit(f"build failed: syntax error in {name}")
     # The 3D renderer is an ES module; node checks it as one only under the .mjs extension.

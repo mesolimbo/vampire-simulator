@@ -1,0 +1,140 @@
+{
+  "song_id": "6thP7fYteU3LHY6zrsBP",
+  "composition_plan": {
+    "chunks": [
+      {
+        "text": "[Theme A]",
+        "duration_ms": 120000,
+        "positive_styles": [
+          "100 BPM",
+          "minor key waltz feel",
+          "plucky pizzicato strings carrying the main motif",
+          "harpsichord answering phrase",
+          "soft brushed percussion without a full drum kit",
+          "playful bassoon and tuba bass line",
+          "celesta sparkles on the second beat",
+          "glockenspiel ornamentation",
+          "soft spooky choir pads",
+          "little theremin accents",
+          "storybook game loop arrangement",
+          "warm close-miked vintage tone"
+        ],
+        "negative_styles": [
+          "drums"
+        ],
+        "context_adherence": "high",
+        "conditioning_ref": null,
+        "condition_strength": null
+      },
+      {
+        "text": "[Theme B]",
+        "duration_ms": 120000,
+        "positive_styles": [
+          "100 BPM",
+          "minor key waltz feel",
+          "slightly busier pizzicato counterline",
+          "harpsichord arpeggios with playful bounce",
+          "bassoon lead variation in a lower register",
+          "tuba bass line with gentle swells",
+          "celesta and glockenspiel call-and-response",
+          "soft spooky choir pads held longer",
+          "little theremin glides between phrases",
+          "light brushed percussion with restrained motion",
+          "loop-friendly midsection variation",
+          "dry, cozy room ambience"
+        ],
+        "negative_styles": [
+          "drums"
+        ],
+        "context_adherence": "high",
+        "conditioning_ref": null,
+        "condition_strength": null
+      },
+      {
+        "text": "[Theme C]",
+        "duration_ms": 120000,
+        "positive_styles": [
+          "100 BPM",
+          "minor key waltz feel",
+          "more delicate pizzicato texture",
+          "harpsichord shifts to a lighter voicing",
+          "bassoon takes a comic little melody",
+          "tuba keeps a rounded walking undercurrent",
+          "celesta sparkles tucked into gaps",
+          "glockenspiel doubles key notes sparingly",
+          "soft spooky choir pads thinning slightly",
+          "little theremin touches for eerie charm",
+          "gentle variation section",
+          "storybook atmosphere with no peak"
+        ],
+        "negative_styles": [
+          "drums"
+        ],
+        "context_adherence": "high",
+        "conditioning_ref": null,
+        "condition_strength": null
+      },
+      {
+        "text": "[Theme D]",
+        "duration_ms": 120000,
+        "positive_styles": [
+          "100 BPM",
+          "minor key waltz feel",
+          "plucky strings with a repeating hook",
+          "harpsichord and celesta sharing the lead",
+          "bassoon and tuba bass line returning fuller",
+          "glockenspiel accents on phrase endings",
+          "soft spooky choir pads broadened a little",
+          "little theremin color on transitions",
+          "light brushed percussion kept subtle",
+          "cozy Halloween village mood",
+          "steady loop development",
+          "slightly wider stereo image"
+        ],
+        "negative_styles": [
+          "drums"
+        ],
+        "context_adherence": "high",
+        "conditioning_ref": null,
+        "condition_strength": null
+      },
+      {
+        "text": "[Theme E]",
+        "duration_ms": 120000,
+        "positive_styles": [
+          "100 BPM",
+          "minor key waltz feel",
+          "return of the main pizzicato motif",
+          "harpsichord cadence that feels complete but open",
+          "bassoon melody quietly mirrored by tuba",
+          "celesta sparkles resolving the phrase",
+          "glockenspiel traces the home key",
+          "soft spooky choir pads fading into the texture",
+          "little theremin final color cue",
+          "light brushed percussion tapering naturally",
+          "seamless loop ending that leads back to the start",
+          "gentle final variation without a climax"
+        ],
+        "negative_styles": [
+          "drums"
+        ],
+        "context_adherence": "high",
+        "conditioning_ref": null,
+        "condition_strength": null
+      }
+    ]
+  },
+  "song_metadata": {
+    "title": "Vampire Village Waltz",
+    "description": "A cozy-spooky instrumental waltz for a cartoon vampire village game, built from pizzicato strings, harpsichord, bassoon, tuba, celesta, glockenspiel, soft choir pads, and small theremin details. The arrangement stays gentle, mischievous, and endlessly loopable with no big climax.",
+    "genres": [
+      "ambient",
+      "classical",
+      "world"
+    ],
+    "languages": [],
+    "is_explicit": false
+  },
+  "words_timestamps": null,
+  "waveform_visual": null
+}

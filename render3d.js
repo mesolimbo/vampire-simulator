@@ -892,16 +892,38 @@ function drawFrame() {
   renderer.autoClear = false; composer.render(); renderer.autoClear = true;
 }
 let slowAcc = 0, slowN = 0, calmWindows = 0;
+const setScale = (k) => { renderScale = k; renderer.setPixelRatio(k); composer.setPixelRatio(k); composer.setSize(innerWidth, innerHeight); calmWindows = 0; };
+// With the resolution setting on automatic, the render scale drops when frames run slow and creeps back up when they
+// have headroom.
 function adaptResolution(dt) {
-  if (document.hidden || dt > 0.5) return;
+  if (quality.resolution !== 'auto' || document.hidden || dt > 0.5) return;
   slowAcc += dt;
   if (++slowN < 40) return;
   const avg = slowAcc / slowN; slowAcc = 0; slowN = 0;
-  const set = (k) => { renderScale = k; renderer.setPixelRatio(k); composer.setPixelRatio(k); composer.setSize(innerWidth, innerHeight); calmWindows = 0; };
-  if (avg > 1 / 48 && renderScale > 0.6) set(Math.max(0.6, renderScale * 0.85));
-  else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) set(Math.min(MAX_SCALE, renderScale * 1.1));
+  if (avg > 1 / 48 && renderScale > 0.6) setScale(Math.max(0.6, renderScale * 0.85));
+  else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) setScale(Math.min(MAX_SCALE, renderScale * 1.1));
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+
+// The graphics settings (see menu.js): shadow quality, render resolution, the tilt-shift passes and antialiasing.
+let quality = { shadows: 'high', resolution: 'auto', blur: true, aa: true };
+function configure(s) {
+  const was = quality;
+  quality = { shadows: s.shadows, resolution: s.resolution, blur: s.blur, aa: s.aa };
+  const on = quality.shadows !== 'off', size = quality.shadows === 'low' ? 1024 : 2048;
+  if (renderer.shadowMap.enabled !== on) {   // materials compile with or without shadows, so they rebuild
+    renderer.shadowMap.enabled = on;
+    scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.needsUpdate = true; }); });
+  }
+  sun.castShadow = on;
+  if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  blurH.enabled = blurV.enabled = quality.blur;
+  const samples = quality.aa ? 4 : 0;
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
+  if (quality.resolution !== 'auto') setScale(MAX_SCALE * +quality.resolution);
+  else if (was.resolution !== 'auto') setScale(Math.min(MAX_SCALE, 1));
+}
+if (typeof settings !== 'undefined') configure(settings);
 
 // ---------- start-up and the per-frame entry point ----------
 
@@ -924,7 +946,7 @@ function frame() {
   drawFrame();
   syncBars();
 }
-window.render3d = { frame, get ready() { return ready; }, get world() { return W; } };
+window.render3d = { frame, configure, get ready() { return ready; }, get world() { return W; } };
 
 const loading = document.getElementById('loading'), loadFill = document.getElementById('loadFill'), loadText = document.getElementById('loadText');
 let filesIdle = false;

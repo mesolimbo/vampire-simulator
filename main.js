@@ -1,25 +1,26 @@
 'use strict';
 // Input and the frame loop. The 3D view (render3d.js) draws the town; ?view=2d draws it flat on the canvas instead.
 
-const view3d = () => !VIEW_2D && window.render3d && window.render3d.ready;
-
 // ---------- input ----------
 
 addEventListener('keydown', (ev) => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) ev.preventDefault();
   if (ev.repeat) return;
+  audio.init();
+  if (ev.code === 'KeyM') return menu.toggleMute();
+  if (menu.key(ev)) return;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) ev.preventDefault();
   keys.add(ev.code);
-  if (!VIEW_2D && !view3d()) return;   // hold the game until the town has loaded
-  // The town on the title screen is the one the game starts in, so the 3D view need not rebuild.
-  if (mode === 'title') { if (ev.code === 'Enter' || ev.code === 'Space') mode = 'play'; return; }
   if (ev.code === 'KeyR') { reset(); mode = 'play'; paused = false; return; }
   if (mode !== 'play') return;
   if (ev.code === 'KeyP') paused = !paused;
   if (ev.code === 'KeyE') interact(false);
   if (ev.code === 'KeyW' || ev.code === 'ArrowUp') interact(true);
 });
+// Held movement keys must not scroll the page either.
+addEventListener('keydown', (ev) => { if (ev.repeat && mode === 'play' && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) ev.preventDefault(); });
 addEventListener('keyup', (ev) => keys.delete(ev.code));
 addEventListener('blur', () => keys.clear());
+addEventListener('pointerdown', () => audio.init());
 
 let last = performance.now();
 function frame(now) {
@@ -29,6 +30,8 @@ function frame(now) {
     const steps = timeScale();
     for (let i = 0; i < steps && mode === 'play'; i++) update(dt);
   }
+  audio.update();
+  menu.sync();
   if (VIEW_2D) draw();
   else if (window.render3d) { window.render3d.frame(); updateHud(); drawOverlay(); }
   requestAnimationFrame(frame);
