@@ -332,17 +332,34 @@ diffuseColor.a = mix(0.25, 0.75, wDeep);`).replace('#include <normal_fragment_ma
   const rises = (x, z) => HILL * (1 - sstep(6, 20.5, Math.hypot(x - churchAt[0], z - churchAt[1]))) + YARD_RISE * (1 - sstep(15, 34, Math.hypot(x - yard.x, z - yard.z)));
   const base = (x, z) => swell(x, z) + bumps(x, z) + rises(x, z);
   // Height of the road surface at a point: the smooth land under the nearest point of the road's centre line, plus the mound.
+  // Where two roads meet, the two heights are blended by distance, so the surface has no step along the line where
+  // the nearer road changes.
   function roadTop(x, z) {
-    let best = Infinity, top = 0;
+    let sw = 0, top = 0;
     for (const r of roads) {
       const a = r.deg * Math.PI / 180, dx = Math.cos(a), dz = Math.sin(a), t = (x - r.at[0]) * dx + (z - r.at[1]) * dz;
       const cx = r.at[0] + dx * t, cz = r.at[1] + dz * t, d = Math.hypot(x - cx, z - cz);
-      if (d < best) { best = d; top = swell(cx, cz) + rises(cx, cz) + MOUND * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(cx)) * edge(cx, cz); }
+      const w = 1 / (d * d + 0.5) ** 2;
+      sw += w; top += w * (swell(cx, cz) + rises(cx, cz) + MOUND * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(cx)) * edge(cx, cz));
     }
-    return top;
+    return top / sw;
   }
-  // The road surface arcs across its width: highest on the centre line, falling to the edges. It flattens at the bridges.
-  const crown = (x, z) => { const d = roadDist(x, z) / ROAD_HALF; return d >= 1 ? 0 : CROWN * (1 - d * d) * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(x)) * edge(x, z); };
+  // Where the two roads cross (if they do, inside the map), so the arch can flatten into a level junction.
+  const junction = (() => {
+    const [p, q] = roads.map((r) => ({ x: r.at[0], z: r.at[1], dx: Math.cos(r.deg * Math.PI / 180), dz: Math.sin(r.deg * Math.PI / 180) }));
+    const den = p.dx * q.dz - p.dz * q.dx;
+    if (Math.abs(den) < 1e-6) return null;
+    const s = ((q.x - p.x) * q.dz - (q.z - p.z) * q.dx) / den;
+    return { x: p.x + p.dx * s, z: p.z + p.dz * s };
+  })();
+  // The road surface arcs across its width: highest on the centre line, falling to the edges. It flattens at the bridges
+  // and at the junction.
+  const crown = (x, z) => {
+    const d = roadDist(x, z) / ROAD_HALF;
+    if (d >= 1) return 0;
+    const atJunction = junction ? sstep(ROAD_HALF * 1.5, ROAD_HALF * 4, Math.hypot(x - junction.x, z - junction.z)) : 1;
+    return CROWN * (1 - d * d) * sstep(RIVER_HALF + 5, RIVER_HALF + 22, Math.abs(x)) * edge(x, z) * atJunction;
+  };
   const pads = [...homes.map(([x, z]) => ({ x, z, r: 6.5, b: 6, h: base(x, z) })), { x: churchAt[0], z: churchAt[1], r: 7, b: 6, h: base(churchAt[0], churchAt[1]) }, { x: yard.x, z: yard.z, r: 18, b: 9, h: base(yard.x, yard.z) }];
   function heightAt(x, z) {
     const bank = Math.abs(x);
@@ -492,15 +509,51 @@ diffuseColor.rgb *= gC;`);
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uRoads = roadLines;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-varying vec3 vRoadPos;`).replace('#include <begin_vertex>', `#include <begin_vertex>
-vRoadPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
+varying vec3 vRoadPos;
+varying vec3 vRoadN;`).replace('#include <begin_vertex>', `#include <begin_vertex>
+vRoadPos = (modelMatrix * vec4(position, 1.0)).xyz;
+vRoadN = normalize(mat3(modelMatrix) * objectNormal);`);
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
 varying vec3 vRoadPos;
+varying vec3 vRoadN;
 uniform vec4 uRoads[2];
 float rHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float rNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(rHash(i), rHash(i + vec2(1, 0)), f.x), mix(rHash(i + vec2(0, 1)), rHash(i + vec2(1, 1)), f.x), f.y); }`).replace('#include <map_fragment>', `#include <map_fragment>
+float rNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(rHash(i), rHash(i + vec2(1, 0)), f.x), mix(rHash(i + vec2(0, 1)), rHash(i + vec2(1, 1)), f.x), f.y); }
+// The road texture sampled in world space, 3.2 m per repeat, with the repeat hidden as on the grass: each noise cell
+// takes the tile at its own offset and neighbouring cells blend, a second layer turned a quarter turn at another
+// scale is mixed in, and broad patches lighten and darken it. The modules' own UVs repeated every 3 m in streaks.
+vec2 rUv, rDx, rDy; float rI, rF;
+void rCells() {
+  rUv = vRoadPos.xz / 3.2; rDx = dFdx(rUv); rDy = dFdy(rUv);
+  float l = rNoise(vRoadPos.xz * 0.42 + 13.0) * 8.0; rI = floor(l); rF = smoothstep(0.2, 0.8, fract(l));
+}`).replace('#include <map_fragment>', `
+rCells();
+#ifdef USE_MAP
+{ vec3 a = textureGrad(map, rUv + sin(vec2(3.0, 7.0) * rI), rDx, rDy).rgb;
+  vec3 b = textureGrad(map, rUv + sin(vec2(3.0, 7.0) * (rI + 1.0)), rDx, rDy).rgb;
+  vec3 c = mix(a, b, rF);
+  vec2 uv2 = vec2(-rUv.y, rUv.x) * 0.77;
+  float l2 = rNoise(vRoadPos.xz * 0.33 + 41.0) * 8.0, i2 = floor(l2), f2 = smoothstep(0.2, 0.8, fract(l2));
+  vec3 d = mix(textureGrad(map, uv2 + sin(vec2(5.0, 2.0) * i2), rDy * 0.77, rDx * 0.77).rgb, textureGrad(map, uv2 + sin(vec2(5.0, 2.0) * (i2 + 1.0)), rDy * 0.77, rDx * 0.77).rgb, f2);
+  c = mix(c, d, 0.3 + 0.4 * rNoise(vRoadPos.xz * 0.19 + 7.0));
+  c *= 0.84 + 0.3 * rNoise(vRoadPos.xz * 0.07) + 0.1 * rNoise(vRoadPos.xz * 0.6 + 3.0);
+  diffuseColor.rgb *= c; }
+#endif
+#if defined(ROAD_INDEX) && ROAD_INDEX == 1
+// Only the first road's surface draws where the two overlap; this one fades out across the first road's edge.
+diffuseColor.a *= smoothstep(2.3, 3.2, abs((vRoadPos.x - uRoads[0].x) * uRoads[0].w - (vRoadPos.z - uRoads[0].y) * uRoads[0].z));
+#endif
 float rD = min(abs((vRoadPos.x - uRoads[0].x) * uRoads[0].w - (vRoadPos.z - uRoads[0].y) * uRoads[0].z), abs((vRoadPos.x - uRoads[1].x) * uRoads[1].w - (vRoadPos.z - uRoads[1].y) * uRoads[1].z));
-diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 * rNoise(vRoadPos.xz * 3.1), 3.25, rD);`);
+diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 * rNoise(vRoadPos.xz * 3.1), 3.25, rD);`).replace('#include <normal_fragment_maps>', `
+#ifdef USE_NORMALMAP
+// The normal map sampled with the same world-space cells, at a third of its strength: pebbles catch the light, but
+// the road still reads as smooth.
+{ vec3 na = textureGrad(normalMap, rUv + sin(vec2(3.0, 7.0) * rI), rDx, rDy).xyz;
+  vec3 nb = textureGrad(normalMap, rUv + sin(vec2(3.0, 7.0) * (rI + 1.0)), rDx, rDy).xyz;
+  vec3 tn = mix(na, nb, rF) * 2.0 - 1.0; tn.xy *= 0.35;
+  vec3 nW = normalize(vRoadN), tW = normalize(vec3(1.0, 0.0, 0.0) - nW * nW.x), bW = cross(nW, tW);
+  normal = normalize((viewMatrix * vec4(normalize(tW * tn.x + bW * tn.y + nW * tn.z), 0.0)).xyz); }
+#endif`);
     };
   });
   const span = fit(loaded.bridge_span, { width: BRIDGE_HALF * 2, length: 3 });
@@ -513,6 +566,9 @@ diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 *
   const lowIsPlusZ = lo[1] / cnt[1] < lo[0] / cnt[0];
   const deckY = -0.25;
   const abutY = deckY - 0.06 * abut.children[0].scale.y;   // the ramp's low edge sinks 0.06 model units below the span's base
+  // Each road gets its own copy of the material, told which road it is, so the second can step aside at the junction.
+  const roadMat = (() => { let m; eachMaterial(loaded.road_straight, (x) => { m = x; }); return m; })();
+  const roadMats = [0, 1].map((i) => { const m = roadMat.clone(); m.onBeforeCompile = roadMat.onBeforeCompile; m.defines = { ...(m.defines || {}), ROAD_INDEX: i }; return m; });
   roads.forEach((road, ri) => {
     const a = road.deg * Math.PI / 180, dx = Math.cos(a), dz = Math.sin(a);
     const yaw = Math.atan2(dx, dz);            // module length runs along local +Z
@@ -527,7 +583,7 @@ diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 *
       const p = at(mid, ri * 0.012);
       if (Math.abs(p.x) > GROUND || Math.abs(p.z) > GROUND) continue;
       ends[0] = Math.min(ends[0], s); ends[1] = Math.max(ends[1], s + 3);
-      const r = loaded.road_straight.clone(); r.position.copy(p); r.rotation.y = yaw; r.updateMatrixWorld(true);
+      const r = loaded.road_straight.clone(); r.traverse((o) => { if (o.isMesh) o.material = roadMats[ri]; }); r.position.copy(p); r.rotation.y = yaw; r.updateMatrixWorld(true);
       r.traverse((o) => {   // lift every vertex onto the embankment, so the module follows the land
         if (!o.isMesh) return;
         // Keep only upward faces, in case a module ever carries sides or a base.
@@ -555,13 +611,22 @@ diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 *
           o.geometry.setAttribute(name, new THREE.BufferAttribute(cur, w, at.normalized));
         }
         const g = o.geometry.attributes.position, inv = o.matrixWorld.clone().invert();
-        for (let i = 0; i < g.count; i++) { v.fromBufferAttribute(g, i).applyMatrix4(o.matrixWorld); v.y += roadTop(v.x, v.z) + crown(v.x, v.z); v.applyMatrix4(inv); g.setXYZ(i, v.x, v.y, v.z); }
-        o.geometry.computeVertexNormals(); o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox();
+        // Normals come from the slope of the smooth road height, not from the facets: flat facets showed their seams as
+        // lines along the road in low sun.
+        const surf = (x, z) => roadTop(x, z) + crown(x, z), nrm = o.geometry.attributes.normal || new THREE.BufferAttribute(new Float32Array(g.count * 3), 3);
+        const toLocal = new THREE.Matrix3().getNormalMatrix(inv), nv = new THREE.Vector3(), E = 0.05;
+        for (let i = 0; i < g.count; i++) {
+          v.fromBufferAttribute(g, i).applyMatrix4(o.matrixWorld);
+          nv.set(-(surf(v.x + E, v.z) - surf(v.x - E, v.z)) / (2 * E), 1, -(surf(v.x, v.z + E) - surf(v.x, v.z - E)) / (2 * E)).normalize().applyMatrix3(toLocal).normalize();
+          nrm.setXYZ(i, nv.x, nv.y, nv.z);
+          v.y += surf(v.x, v.z); v.applyMatrix4(inv); g.setXYZ(i, v.x, v.y, v.z);
+        }
+        o.geometry.setAttribute('normal', nrm); o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox();
       });
       shadows(r, false, true); r.traverse((o) => { o.renderOrder = 1; }); scene.add(r);
     }
     for (const [from, dir] of [[ends[0], -1], [ends[1], 1]]) {   // one stretched module carries the road on past the border, into the fog
-      const r = loaded.road_straight.clone(); r.position.copy(at(from + dir * 200, ri * 0.012)); r.rotation.y = yaw; r.scale.z *= 400 / 3;
+      const r = loaded.road_straight.clone(); r.traverse((o) => { if (o.isMesh) o.material = roadMats[ri]; }); r.position.copy(at(from + dir * 200, ri * 0.012)); r.rotation.y = yaw; r.scale.z *= 400 / 3;
       r.traverse((o) => { o.renderOrder = 1; }); scene.add(r);
     }
     for (let i = 0; i < spans; i++) {
@@ -774,7 +839,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   const walker = { x: yard.x, z: yard.z - 4 + 0.33 * CRYPT_SCALE + 2.2 };   // starts on the crypt's doorstep
   const SPEED = 150 * 3 / 32, TOWN_X = 92, TOWN_Z = 60;   // walkable area: past the southernmost doors, with room to walk round every home
   const solids = [...homes.map(([x, z]) => ({ x, z, r: 4.7 })), { x: churchAt[0], z: churchAt[1], r: 6.2 }, { x: yard.x, z: yard.z - 4, r: 3.5 }, ...tombs, ...trunks];
-  window.sceneDebug = { trunks, tombs, walker, pawn, churchAt, yard };   // for checking collisions from the console
+  window.sceneDebug = { trunks, tombs, walker, pawn, churchAt, yard, roads };   // for checking collisions from the console
   const onBridge = (x, z) => Math.abs(x) < RIVER_HALF + 3 && roadDist(x, z) < BRIDGE_HALF - 0.9;
   const canStand = (x, z) => Math.abs(x) <= TOWN_X && Math.abs(z) <= TOWN_Z && (Math.abs(x) > RIVER_HALF + 0.4 || onBridge(x, z)) && solids.every((o) => Math.hypot(x - o.x, z - o.z) > o.r);
   const groundY = (x, z) => onBridge(x, z) ? Math.max(heightAt(x, z), 0.42 * sstep(RIVER_HALF + 3, RIVER_HALF, Math.abs(x)) + 0.02) : roadDist(x, z) < ROAD_HALF ? roadTop(x, z) + crown(x, z) + 0.04 : mulchTop(x, z);
