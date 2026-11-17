@@ -3,7 +3,7 @@
 // passed on to the audio and the 3D view.
 
 const SETTINGS_KEY = 'vampire-settings';
-const DEFAULT_SETTINGS = { music: 70, sfx: 80, muted: false, shadows: 'high', resolution: 'auto', blur: true, aa: true };
+const DEFAULT_SETTINGS = { music: 20, sfx: 90, muted: false, shadows: 'high', resolution: 'auto', blur: true, aa: true };
 const FASTEST_GRAPHICS = { shadows: 'off', resolution: '0.5', blur: false, aa: false };
 const settings = (() => {
   try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (e) { return { ...DEFAULT_SETTINGS }; }

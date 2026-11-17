@@ -32,13 +32,38 @@ renderer.domElement.id = 'view3d';
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-// The camera keeps a fixed angle and distance and follows the simulation's camera subject. It never turns, so the
-// WASD keys keep matching the screen.
-const CAM_DOWN = 29 * Math.PI / 180, CAM_DIST = 48;
+// The camera follows the simulation's camera subject. Dragging with the left button turns it round the subject and
+// tilts it, the wheel zooms, and a double click puts it back. The simulation reads the turn (viewYaw), so the WASD
+// keys keep matching the screen.
+const CAM = { yaw: 0, pitch: 29 * Math.PI / 180, dist: 48 };
+const CAM_HOME = { ...CAM }, PITCH_MIN = 12 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180, DIST_MIN = 22, DIST_MAX = 100;
 const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.5, 900);
 const camTarget = new THREE.Vector3();
-const placeCamera = () => camera.position.set(camTarget.x, camTarget.y + CAM_DIST * Math.sin(CAM_DOWN), camTarget.z + CAM_DIST * Math.cos(CAM_DOWN));
+function placeCamera() {
+  const flat = CAM.dist * Math.cos(CAM.pitch);
+  camera.position.set(camTarget.x + flat * Math.sin(CAM.yaw), camTarget.y + CAM.dist * Math.sin(CAM.pitch), camTarget.z + flat * Math.cos(CAM.yaw));
+}
 const aimAt = () => { placeCamera(); camera.lookAt(camTarget); };
+// The subject sits a little below the middle of the screen, leaving more room above for the sky.
+const FRAME_SHIFT = 0.1;
+const frameCamera = () => camera.setViewOffset(innerWidth, innerHeight, 0, -FRAME_SHIFT * innerHeight, innerWidth, innerHeight);
+frameCamera();
+{
+  const el = renderer.domElement;
+  let drag = null;
+  el.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; drag = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); el.style.cursor = 'grabbing'; });
+  el.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    CAM.yaw -= (e.clientX - drag.x) * 0.006;
+    CAM.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, CAM.pitch + (e.clientY - drag.y) * 0.004));
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  const release = () => { drag = null; el.style.cursor = ''; };
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('wheel', (e) => { e.preventDefault(); CAM.dist = Math.min(DIST_MAX, Math.max(DIST_MIN, CAM.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+  el.addEventListener('dblclick', () => Object.assign(CAM, CAM_HOME));
+}
 
 const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x4a5a34, 1.0);
 const sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
@@ -903,7 +928,7 @@ function adaptResolution(dt) {
   if (avg > 1 / 48 && renderScale > 0.6) setScale(Math.max(0.6, renderScale * 0.85));
   else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) setScale(Math.min(MAX_SCALE, renderScale * 1.1));
 }
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; frameCamera(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
 
 // The graphics settings (see menu.js): shadow quality, render resolution, the tilt-shift passes and antialiasing.
 let quality = { shadows: 'high', resolution: 'auto', blur: true, aa: true };
@@ -937,6 +962,7 @@ function frame() {
   setTimeOfDay(hourOfDay());
   syncBuildings(dt);
   syncCharacters(dt);
+  viewYaw = CAM.yaw;
   followCamera(dt);
   stars.position.set(camTarget.x, 0, camTarget.z);
   starUniforms.uTime.value = waterUniforms.uTime.value = timer.elapsedTime;

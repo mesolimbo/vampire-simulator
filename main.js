@@ -33,7 +33,7 @@ function frame(now) {
   audio.update();
   menu.sync();
   if (VIEW_2D) draw();
-  else if (window.render3d) { window.render3d.frame(); updateHud(); drawOverlay(); }
+  else if (window.render3d) { window.render3d.frame(); updateHud(); updatePanels(); }
   requestAnimationFrame(frame);
 }
 reset();

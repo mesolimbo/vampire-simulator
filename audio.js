@@ -8,7 +8,7 @@ const audio = (() => {
     'church_falls', 'win', 'lose', 'start', 'denied', 'ambience_night_loop', 'ambience_day_loop'];
   // Full levels of each bus; the settings' music and effects volumes scale them (ambience goes with the effects).
   const LEVEL = { music: 0.45, ambience: 0.45, sfx: 1 };
-  let ctx = null, master, buses = {}, buffers = {}, config = { music: 70, sfx: 80, muted: false };
+  let ctx = null, master, buses = {}, buffers = {}, config = { music: 20, sfx: 90, muted: false };
   const busLevel = (name) => LEVEL[name] * (name === 'music' ? config.music : config.sfx) / 100;
 
   function configure(s) {

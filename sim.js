@@ -90,6 +90,7 @@ const blocked = new Uint8Array(COLS * ROWS), road = new Uint8Array(COLS * ROWS);
 const crypt = {}, tombs = [], cam = { x: 0, y: 0 };
 
 let mode = 'title', paused = false;
+let viewYaw = 0;   // the camera's turn about the vertical, in radians; 0 looks north. Set by the 3D view.
 let river, roads, bridges;
 let houses, actors, player, talk, clock, nightNum, logs, flashMsg, stats, endText, rally, deathNotice;
 
@@ -748,8 +749,10 @@ function updatePlayer(dt) {
     return;
   }
   if (p.state === 'walk') {
-    const dx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const dy = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
+    // Keys follow the view: up walks away from the camera, right walks to the right of the screen.
+    const ix = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+    const iy = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
+    const c = Math.cos(viewYaw), s = Math.sin(viewYaw), dx = ix * c + iy * s, dy = -ix * s + iy * c;
     if (dx || dy) {
       const step = TUNE.playerSpeed * dt / Math.hypot(dx, dy);
       if (canStand(p.x + dx * step, p.y)) p.x += dx * step;

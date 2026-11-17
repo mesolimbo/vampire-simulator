@@ -8,6 +8,7 @@
   // ?view=2d plays the original flat view, with its own top bar and footer drawn on the canvas.
   const VIEW_2D = new URLSearchParams(location.search).get('view') === '2d';
   document.documentElement.classList.toggle('view2d', VIEW_2D);
+  document.documentElement.classList.toggle('view3d', !VIEW_2D);
 </script>
 <style>
   [hidden] { display: none !important; }
@@ -29,7 +30,49 @@
   .view2d #c { position: static; width: auto; height: auto; max-width: 100vw; max-height: 100vh; background: #000; }
   .view2d .hud, .view2d #loading, .view2d #bars, .view2d #menu .gfx { display: none; }
   /* Menus (title, how to play, settings) and the shade behind the end screen, in HTML over the whole window. */
-  #shade { position: fixed; inset: 0; z-index: 6; background: rgba(6, 6, 12, .88); }
+  #view3d { cursor: grab; }
+  .view3d #c { display: none; }
+  /* Doorstep talk, death banner and end screen: wood panels with the HUD's gold trim. */
+  .panel { box-sizing: border-box; color: #fff0bd; font-family: Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; background: #201212 url('assets/hud/wood.svg') repeat center / auto 120px; border: 3px solid #8d5b2d; border-radius: 6px; box-shadow: inset 0 1px #ffdc86, inset 0 -2px #e7b45d, inset 0 0 0 5px #1b1010, 0 8px 30px #000; }
+  #talk { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -54%); width: min(1080px, calc(100vw - 32px)); display: grid; grid-template-columns: minmax(120px, 230px) 1fr minmax(120px, 230px); gap: 22px; align-items: stretch; padding: 14px; transition: border-color .3s, background-color .3s; }
+  #talk.feeding { border-color: #c4202e; background-color: #3a0a10; }
+  #talk .portrait { background: #000; border-radius: 3px; overflow: hidden; aspect-ratio: 3 / 4; }
+  #talk .portrait img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  #talk .portrait img.hide { visibility: hidden; }
+  #talk .portrait img.pop { animation: pop .25s ease-out; }
+  @keyframes pop { from { opacity: .3; transform: scale(1.04); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #talk .portrait img.pop { animation: none; } }
+  .talk-body { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 8px 4px; min-width: 0; }
+  .talk-body h2 { margin: 0 0 4px; font-size: clamp(20px, 2.2vw, 30px); font-weight: 600; color: #fff0bd; }
+  .talk-body p { margin: 0; font-size: clamp(15px, 1.5vw, 20px); line-height: 1.35; }
+  .talk-body .knock { color: #c9b48d; font-style: italic; }
+  .talk-body .question { font-weight: 600; }
+  .talk-body .answer { color: #ffb3bd; }
+  .talk-body .outcome { font-weight: 600; }
+  .talk-body .outcome.won { color: #9fe0a8; }
+  .talk-body .outcome.lost { color: #ff7a7a; }
+  .talk-body [hidden] { display: none; }
+  .talk-body .feed { display: flex; align-items: center; gap: 14px; font-size: clamp(16px, 1.6vw, 21px); font-weight: 600; }
+  .talk-body .meter { flex: 1; height: 12px; border: 2px solid #c4974d; border-radius: 7px; background: #120c0c; overflow: hidden; }
+  .talk-body .meter i { display: block; height: 100%; width: 0; background: linear-gradient(#f46b5a, #8e172b); }
+  @media (max-width: 640px) { #talk { grid-template-columns: 90px 1fr 90px; gap: 10px; padding: 10px; } }
+  #death { position: fixed; z-index: 6; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(820px, calc(100vw - 32px)); padding: 22px 28px; text-align: center; display: flex; flex-direction: column; gap: 8px; border-color: #b3202a; }
+  #death strong { font-size: clamp(20px, 2.4vw, 30px); color: #ff6a78; font-weight: 600; }
+  #death span { font-size: clamp(15px, 1.5vw, 19px); color: #e7cca0; }
+  #shade { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(ellipse at center, rgba(14, 8, 16, .7), rgba(4, 3, 8, .92)); }
+  .end { width: min(720px, 100%); padding: 32px 36px; text-align: center; }
+  .end h2 { margin: 0; font-size: clamp(32px, 5vw, 56px); font-weight: 600; letter-spacing: .05em; color: #ff3b4e; }
+  .end.won h2 { color: #9fe0a8; }
+  .end-text { margin: 12px 0 22px; font-size: clamp(16px, 1.8vw, 21px); color: #e7cca0; font-style: italic; }
+  .end-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 0 0 26px; }
+  .end-stats div { padding: 8px; border: 1px solid rgba(187, 145, 72, .5); border-radius: 6px; background: rgba(0, 0, 0, .25); }
+  .end-stats dt { font-size: 13px; color: #c9b48d; }
+  .end-stats dd { margin: 2px 0 0; font-size: 24px; font-weight: 600; }
+  .end button, #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: 1px 2px 2px #000; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
+  .end button.primary, #menu button.primary { background: linear-gradient(120deg, #6a1a1e, #240709 50%, #4a1216); }
+  .end button:hover { border-color: #ffd86b; }
+  .end button:focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
+  .end kbd { font: inherit; font-size: 13px; padding: 1px 6px; border: 1px solid #bb9148; border-radius: 4px; color: #e7cca0; }
   #menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(14, 8, 16, .72), rgba(4, 3, 8, .94)); color: #fff0bd; font-family: Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; }
   #menu section { width: min(760px, 100%); text-align: center; }
   #menu h1 { margin: 0; font-size: clamp(36px, 6vw, 68px); font-weight: 600; letter-spacing: .06em; color: #ff3b4e; }
@@ -77,7 +120,27 @@
 </div>
 <div id="bars"></div>
 <canvas id="c" width="1280" height="720"></canvas>
-<div id="shade" hidden></div>
+<div id="talk" class="panel" role="dialog" aria-live="polite" hidden>
+  <div class="portrait"><img id="talkVampire" alt="You, the vampire"></div>
+  <div class="talk-body">
+    <h2 id="talkHouse"></h2>
+    <p class="knock" id="talkKnock">Knock, knock.</p>
+    <p class="question" id="talkQ"></p>
+    <p class="answer" id="talkA"></p>
+    <p class="outcome" id="talkOutcome"></p>
+    <div class="feed" id="talkFeed"><span>You feed.</span><div class="meter"><i id="talkFeedBar"></i></div></div>
+  </div>
+  <div class="portrait"><img id="talkVillager" alt="The resident at the door"></div>
+</div>
+<div id="death" class="panel" role="status" hidden><strong id="deathText"></strong><span id="deathWhere"></span></div>
+<div id="shade" hidden>
+  <section class="panel end">
+    <h2 id="endTitle"></h2>
+    <p class="end-text" id="endText"></p>
+    <dl class="end-stats" id="endStats"></dl>
+    <button type="button" class="primary" id="againButton">Play again <kbd>R</kbd></button>
+  </section>
+</div>
 <div id="menu">
   <section id="titleView">
     <h1>Vampire Simulator</h1>
@@ -93,6 +156,7 @@
     <h3>Controls</h3>
     <ul>
       <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys move. Walk up to a door and press <kbd>W</kbd> or <kbd>E</kbd>.</li>
+      <li class="gfx">Drag with the left mouse button to turn and tilt the view; movement follows it. The wheel zooms and a double click resets the view.</li>
       <li>Hold <kbd>Space</kbd> to fast-forward. <kbd>P</kbd> pauses, <kbd>R</kbd> restarts, <kbd>M</kbd> mutes and <kbd>Esc</kbd> opens the settings.</li>
     </ul>
     <h3>The night</h3>

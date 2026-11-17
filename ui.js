@@ -63,3 +63,76 @@ function updateHud() {
   hud.setAction(...(mode === 'play' && f.action ? f.action : []));
   hud.setSpeed(mode !== 'play' ? '' : paused ? 'Paused' : timeScale() > 1 ? `Fast x${timeScale()}` : '');
 }
+
+// ---------- talk, death and end panels (3D view; the 2D view draws its own on the canvas) ----------
+
+const PORTRAITS = 'assets/portraits/';
+const VILLAGERS = 10;
+// Fetch every portrait up front, so none pops in late halfway through a talk.
+for (const name of ['knock', 'invited', 'refused', 'feed']) new Image().src = `${PORTRAITS}vampire_${name}.jpg`;
+for (let i = 1; i <= VILLAGERS; i++) for (const mood of ['neutral', 'displeased', 'charmed']) new Image().src = `${PORTRAITS}villagers/v${String(i).padStart(2, '0')}_${mood}.jpg`;
+
+const panelEl = (id) => document.getElementById(id);
+function setPortrait(img, src) {
+  img.classList.toggle('hide', !src);
+  if (!src || img.getAttribute('src') === src) return;
+  img.src = src;
+  img.classList.remove('pop'); void img.offsetWidth; img.classList.add('pop');   // restart the animation
+}
+const showText = (id, text) => { const el = panelEl(id); el.hidden = !text; if (text && el.textContent !== text) el.textContent = text; };
+
+function updateTalkPanel() {
+  const box = panelEl('talk');
+  box.hidden = !talk;
+  if (!talk) return;
+  // Lines appear one beat apart: the knock, the resident's question, the answer, the outcome.
+  const shown = talk.feeding ? 4 : Math.floor(talk.t / TUNE.talkBeatSeconds) + 1;
+  const villager = `${PORTRAITS}villagers/v${String((talk.house.id - 1) % VILLAGERS + 1).padStart(2, '0')}_`;
+  const outcome = shown >= 4;
+  setPortrait(panelEl('talkVampire'), `${PORTRAITS}vampire_${talk.feeding ? 'feed' : outcome ? (talk.won ? 'invited' : 'refused') : 'knock'}.jpg`);
+  setPortrait(panelEl('talkVillager'), shown < 2 ? null : `${villager}${outcome ? (talk.won ? 'charmed' : 'displeased') : 'neutral'}.jpg`);
+  box.classList.toggle('feeding', talk.feeding);
+  showText('talkHouse', talk.house.name);
+  showText('talkKnock', 'Knock, knock.');
+  showText('talkQ', shown >= 2 ? `“${talk.q}”` : '');
+  showText('talkA', shown >= 3 ? `You: “${talk.a}”` : '');
+  showText('talkOutcome', outcome ? talk.outcome : '');
+  panelEl('talkOutcome').className = `outcome ${talk.won ? 'won' : 'lost'}`;
+  panelEl('talkFeed').hidden = !talk.feeding;
+  if (talk.feeding) panelEl('talkFeedBar').style.width = `${Math.round(100 * (1 - player.feed / TUNE.feedSeconds))}%`;
+}
+
+function updateDeathPanel() {
+  const box = panelEl('death'), alpha = deathAlpha();
+  box.hidden = alpha <= 0;
+  if (alpha <= 0) return;
+  box.style.opacity = alpha;
+  showText('deathText', deathNotice.text);
+  showText('deathWhere', `You'll rise again in ${deathNotice.where}.`);
+}
+
+let endShown = null;
+function updateEndPanel() {
+  if (mode !== 'over') { endShown = null; return; }
+  if (endShown === endText) return;
+  endShown = endText;
+  const count = (s) => houses.filter((h) => !h.isHQ && h.state === s).length;
+  panelEl('shade').querySelector('.end').classList.toggle('won', endText.won);
+  panelEl('endTitle').textContent = endText.won ? 'The town is yours' : 'You are dust';
+  panelEl('endText').textContent = endText.text;
+  const rows = [['Nights', nightNum], ['Invitations won', stats.invited], ['Doors slammed', stats.slammed], ['Deaths', stats.deaths],
+    ['Cursed houses', count('cursed')], ['Clean houses', count('clean')], ['Hunters alive', hunterCount()]];
+  const dl = panelEl('endStats');
+  dl.replaceChildren(...rows.map(([label, value]) => {
+    const d = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = label; dd.textContent = value; d.append(dt, dd); return d;
+  }));
+  panelEl('againButton').focus({ preventScroll: true });
+}
+panelEl('againButton').addEventListener('click', () => { reset(); mode = 'play'; paused = false; document.activeElement.blur(); });
+
+function updatePanels() {
+  updateTalkPanel();
+  updateDeathPanel();
+  updateEndPanel();
+}

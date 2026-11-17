@@ -262,14 +262,19 @@ function drawOverlays() {
   drawDeathBanner();
 }
 
-function drawDeathBanner() {
-  const now = performance.now();
-  // Death gets its own banner across the middle of the screen, so no other notice can replace or hide it.
-  const deathAge = deathNotice ? (now - deathNotice.at) / 1000 : Infinity;
-  // It also fades out over the last game seconds before dusk, so it is gone when the player steps outside.
+// Death gets its own banner across the middle of the screen, so no other notice can replace or hide it. It fades out
+// over the last game seconds before dusk, so it is gone when the player steps outside. Returns its opacity, 0 when hidden.
+function deathAlpha() {
+  const deathAge = deathNotice ? (performance.now() - deathNotice.at) / 1000 : Infinity;
   const untilDusk = isNight() ? 0 : timeToDusk() - 2;
-  if (deathAge < TUNE.deathNoticeSeconds && untilDusk > 0 && mode === 'play') {
-    ctx.globalAlpha = Math.min(1, TUNE.deathNoticeSeconds - deathAge, untilDusk / 6);
+  if (deathAge >= TUNE.deathNoticeSeconds || untilDusk <= 0 || mode !== 'play') return 0;
+  return Math.min(1, TUNE.deathNoticeSeconds - deathAge, untilDusk / 6);
+}
+
+function drawDeathBanner() {
+  const alpha = deathAlpha();
+  if (alpha > 0) {
+    ctx.globalAlpha = alpha;
     ctx.fillStyle = 'rgba(10,0,4,.82)'; ctx.fillRect(0, cv.height / 2 - 56, cv.width, 112);
     ctx.fillStyle = '#b3202a'; ctx.fillRect(0, cv.height / 2 - 56, cv.width, 3); ctx.fillRect(0, cv.height / 2 + 53, cv.width, 3);
     text(deathNotice.text, cv.width / 2, cv.height / 2 - 2, '#ff5a6a', 'bold 28px monospace', 'center');
@@ -300,7 +305,7 @@ function drawTalk() {
 }
 
 function drawPanel(lines) {
-  if (VIEW_2D) { ctx.fillStyle = 'rgba(6,6,12,.88)'; ctx.fillRect(0, 0, cv.width, cv.height); }   // the 3D view dims with an HTML shade
+  ctx.fillStyle = 'rgba(6,6,12,.88)'; ctx.fillRect(0, 0, cv.width, cv.height);
   let y = 150;
   for (const [str, color, font, gap] of lines) {
     text(str, cv.width / 2, y, color || '#ddd', font || '16px monospace', 'center');
@@ -331,15 +336,6 @@ function draw() {
   drawWorld();
   ctx.restore();
   drawOverlays();
-  if (talk) drawTalk();
-  if (mode === 'over') drawEnd();
-}
-
-// The 3D view keeps the top bar and footer in HTML, and draws only these on a transparent canvas over the scene.
-function drawOverlay() {
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  if (mode === 'title') return;
-  drawDeathBanner();
   if (talk) drawTalk();
   if (mode === 'over') drawEnd();
 }
