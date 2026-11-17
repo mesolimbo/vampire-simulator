@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vampire Simulator</title>
+<title>Graveyard Shifts: A Vampire Simulator</title>
 <script>
   // ?view=2d plays the original flat view, with its own top bar and footer drawn on the canvas.
   const VIEW_2D = new URLSearchParams(location.search).get('view') === '2d';
@@ -12,7 +12,7 @@
 </script>
 <style>
   [hidden] { display: none !important; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f14; font: 13px/1.4 system-ui, "Segoe UI", sans-serif; color: #e8e4da; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f14; font: 15px/1.4 "tarif", Georgia, serif; color: #e8e4da; }
   #view3d { position: fixed; inset: 0; display: block; }
   /* Talk, death and end panels, drawn at 1280 by 720 and scaled to fit over the scene. */
   #c { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; pointer-events: none; z-index: 7; }
@@ -21,7 +21,7 @@
   .bar3d i { display: block; height: 100%; }
   #loading { position: fixed; inset: 0; z-index: 10; background: #0d0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; transition: opacity .6s ease; }
   #loading.done { opacity: 0; pointer-events: none; }
-  #loading h1 { margin: 0; font: 600 28px/1.2 Georgia, "Times New Roman", serif; letter-spacing: .04em; color: #e8e4da; }
+  #loading h1 { margin: 0; text-align: center; color: #ff3b4e; }
   #loading .bar { width: min(320px, 70vw); height: 6px; background: #221d27; border: 1px solid #4b3f2c; border-radius: 4px; overflow: hidden; }
   #loading .fill { height: 100%; width: 0; background: #b3141c; transition: width .2s ease; }
   #loadText { color: #a99f8c; font-size: 12px; min-height: 1.4em; }
@@ -33,7 +33,7 @@
   #view3d { cursor: grab; }
   .view3d #c { display: none; }
   /* Doorstep talk, death banner and end screen: wood panels with the HUD's gold trim. */
-  .panel { box-sizing: border-box; color: #fff0bd; font-family: Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; background: #201212 url('assets/hud/wood.svg') repeat center / auto 120px; border: 3px solid #8d5b2d; border-radius: 6px; box-shadow: inset 0 1px #ffdc86, inset 0 -2px #e7b45d, inset 0 0 0 5px #1b1010, 0 8px 30px #000; }
+  .panel { box-sizing: border-box; color: #fff0bd; font-family: "tarif", Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; background: #201212 url('assets/hud/wood.svg') repeat center / auto 120px; border: 3px solid #8d5b2d; border-radius: 6px; box-shadow: inset 0 1px #ffdc86, inset 0 -2px #e7b45d, inset 0 0 0 5px #1b1010, 0 8px 30px #000; }
   #talk { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -54%); width: min(1080px, calc(100vw - 32px)); display: grid; grid-template-columns: minmax(120px, 230px) 1fr minmax(120px, 230px); gap: 22px; align-items: stretch; padding: 14px; transition: border-color .3s, background-color .3s; }
   #talk.feeding { border-color: #c4202e; background-color: #3a0a10; }
   #talk .portrait { background: #000; border-radius: 3px; overflow: hidden; aspect-ratio: 3 / 4; }
@@ -67,19 +67,24 @@
   .end-stats div { padding: 8px; border: 1px solid rgba(187, 145, 72, .5); border-radius: 6px; background: rgba(0, 0, 0, .25); }
   .end-stats dt { font-size: 13px; color: #c9b48d; }
   .end-stats dd { margin: 2px 0 0; font-size: 24px; font-weight: 600; }
-  .end button, #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: 1px 2px 2px #000; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
+  .end button, #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 "tarif", Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: 1px 2px 2px #000; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
   .end button.primary, #menu button.primary { background: linear-gradient(120deg, #6a1a1e, #240709 50%, #4a1216); }
   .end button:hover { border-color: #ffd86b; }
   .end button:focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
   .end kbd { font: inherit; font-size: 13px; padding: 1px 6px; border: 1px solid #bb9148; border-radius: 4px; color: #e7cca0; }
-  #menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(16, 9, 18, .93), rgba(4, 3, 8, .985)); color: #fff0bd; font-family: Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; }
+  #menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(16, 9, 18, .93), rgba(4, 3, 8, .985)); color: #fff0bd; font-family: "tarif", Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; }
   #menu section { width: min(760px, 100%); text-align: center; }
-  #menu h1 { margin: 0; font-size: clamp(36px, 6vw, 68px); font-weight: 600; letter-spacing: .06em; color: #ff3b4e; }
+  /* The logo: the game's name and its subhead in the display face, with Georgia standing in until it loads. */
+  .logo { margin: 0; font-family: "cc-primal-scream", "tarif", Georgia, "Times New Roman", serif; font-weight: 400; line-height: 1; color: #ff3b4e; text-shadow: 2px 3px 0 #2a0508, 0 0 18px rgba(179, 20, 28, .45); }
+  .logo .name { display: block; font-size: clamp(44px, 8vw, 96px); letter-spacing: .02em; }
+  .logo .sub { display: block; margin-top: .35em; font-size: clamp(18px, 2.6vw, 32px); letter-spacing: .08em; color: #e7cca0; }
+  #loading .logo .name { font-size: clamp(32px, 5vw, 56px); }
+  #loading .logo .sub { font-size: clamp(14px, 1.8vw, 20px); }
   #menu h2 { margin: 0 0 18px; font-size: 32px; color: #ff3b4e; font-weight: 600; }
   #menu h3 { margin: 22px 0 8px; font-size: 19px; color: #ffd86b; font-weight: 600; text-align: left; }
-  #menu .tagline { margin: 10px 0 36px; font-size: clamp(16px, 2vw, 21px); color: #e7cca0; font-style: italic; }
+  #menu .tagline { margin: 22px 0 36px; font-size: clamp(16px, 2vw, 21px); color: #e7cca0; font-style: italic; }
   #menu .buttons { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 28px; }
-  #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: inherit; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
+  #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 "tarif", Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: inherit; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
   #menu button:hover { border-color: #ffd86b; }
   #menu :focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
   #menu button.primary { background: linear-gradient(120deg, #6a1a1e, #240709 50%, #4a1216); }
@@ -105,6 +110,7 @@
   #settingsView output { width: 44px; text-align: right; }
   #settingsView .hint { margin: 0; text-align: left; font-size: 14px; color: #a99f8c; font-style: italic; }
 </style>
+<link rel="stylesheet" href="https://use.typekit.net/sbw6iaw.css">
 <link rel="stylesheet" href="assets/hud/hud.css">
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
@@ -153,7 +159,7 @@
 </div>
 <div id="menu">
   <section id="titleView">
-    <h1>Vampire Simulator</h1>
+    <h1 class="logo"><span class="name">Graveyard Shifts</span><span class="sub">A Vampire Simulator</span></h1>
     <p class="tagline">A new town every game. Curse it, one house at a time.</p>
     <div class="buttons">
       <button type="button" class="primary" data-action="start">Rise <kbd>Enter</kbd></button>
@@ -253,7 +259,7 @@
   </section>
 </div>
 <div id="loading" role="status" aria-live="polite">
-  <h1>Vampire Simulator</h1>
+  <h1 class="logo"><span class="name">Graveyard Shifts</span><span class="sub">A Vampire Simulator</span></h1>
   <div class="bar"><div class="fill" id="loadFill"></div></div>
   <div id="loadText">Loading the town</div>
 </div>

@@ -1,4 +1,4 @@
-# Vampire Simulator: 3D version spec
+# Graveyard Shifts: 3D version spec
 
 The 3D version is the same game with a new renderer. The rules, tuning, map generator, and pathfinding in the 2D prototype stay as they are. This spec covers what is drawn and how.
 

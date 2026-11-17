@@ -1,4 +1,4 @@
-# Vampire Simulator
+# Graveyard Shifts: A Vampire Simulator
 
 A 3/4 top down (slightly tilted) interactive board game (not turned based) where you play a vampire feeding on a town, one house at a time.
 
