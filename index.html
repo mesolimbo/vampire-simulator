@@ -29,89 +29,14 @@
   .view2d body { display: flex; align-items: center; justify-content: center; background: #0b0b10; }
   .view2d #c { position: static; width: auto; height: auto; max-width: 100vw; max-height: 100vh; background: #000; }
   .view2d .hud, .view2d #loading, .view2d #bars, .view2d #menu .gfx { display: none; }
-  /* Menus (title, how to play, settings) and the shade behind the end screen, in HTML over the whole window. */
   #view3d { cursor: grab; }
   .view3d #c { display: none; }
-  /* Doorstep talk, death banner and end screen: wood panels with the HUD's gold trim. */
-  .panel { box-sizing: border-box; color: #fff0bd; font-family: "tarif", Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; background: #201212 url('assets/hud/wood.svg') repeat center / auto 120px; border: 3px solid #8d5b2d; border-radius: 6px; box-shadow: inset 0 1px #ffdc86, inset 0 -2px #e7b45d, inset 0 0 0 5px #1b1010, 0 8px 30px #000; }
-  #talk { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -54%); width: min(1080px, calc(100vw - 32px)); display: grid; grid-template-columns: minmax(120px, 230px) 1fr minmax(120px, 230px); gap: 22px; align-items: stretch; padding: 14px; transition: border-color .3s, background-color .3s; }
-  #talk.feeding { border-color: #c4202e; background-color: #3a0a10; }
-  #talk .portrait { background: #000; border-radius: 3px; overflow: hidden; aspect-ratio: 3 / 4; }
-  #talk .portrait img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  #talk .portrait img.hide { visibility: hidden; }
-  #talk .portrait img.pop { animation: pop .25s ease-out; }
-  @keyframes pop { from { opacity: .3; transform: scale(1.04); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { #talk .portrait img.pop { animation: none; } }
-  .talk-body { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 8px 4px; min-width: 0; }
-  .talk-body h2 { margin: 0 0 4px; font-size: clamp(20px, 2.2vw, 30px); font-weight: 600; color: #fff0bd; }
-  .talk-body p { margin: 0; font-size: clamp(15px, 1.5vw, 20px); line-height: 1.35; }
-  .talk-body .knock { color: #c9b48d; font-style: italic; }
-  .talk-body .question { font-weight: 600; }
-  .talk-body .answer { color: #ffb3bd; }
-  .talk-body .outcome { font-weight: 600; }
-  .talk-body .outcome.won { color: #9fe0a8; }
-  .talk-body .outcome.lost { color: #ff7a7a; }
-  .talk-body [hidden] { display: none; }
-  .talk-body .feed { display: flex; align-items: center; gap: 14px; font-size: clamp(16px, 1.6vw, 21px); font-weight: 600; }
-  .talk-body .meter { flex: 1; height: 12px; border: 2px solid #c4974d; border-radius: 7px; background: #120c0c; overflow: hidden; }
-  .talk-body .meter i { display: block; height: 100%; width: 0; background: linear-gradient(#f46b5a, #8e172b); }
-  @media (max-width: 640px) { #talk { grid-template-columns: 90px 1fr 90px; gap: 10px; padding: 10px; } }
-  #death { position: fixed; z-index: 6; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(820px, calc(100vw - 32px)); padding: 22px 28px; text-align: center; display: flex; flex-direction: column; gap: 8px; border-color: #b3202a; }
-  #death strong { font-size: clamp(20px, 2.4vw, 30px); color: #ff6a78; font-weight: 600; }
-  #death span { font-size: clamp(15px, 1.5vw, 19px); color: #e7cca0; }
-  #shade { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(ellipse at center, rgba(16, 9, 18, .9), rgba(4, 3, 8, .97)); }
-  .end { width: min(720px, 100%); padding: 32px 36px; text-align: center; }
-  .end h2 { margin: 0; font-size: clamp(32px, 5vw, 56px); font-weight: 600; letter-spacing: .05em; color: #ff3b4e; }
-  .end-text { margin: 12px 0 22px; font-size: clamp(16px, 1.8vw, 21px); color: #e7cca0; font-style: italic; }
-  .end-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 0 0 26px; }
-  .end-stats div { padding: 8px; border: 1px solid rgba(187, 145, 72, .5); border-radius: 6px; background: rgba(0, 0, 0, .25); }
-  .end-stats dt { font-size: 13px; color: #c9b48d; }
-  .end-stats dd { margin: 2px 0 0; font-size: 24px; font-weight: 600; }
-  .end button, #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 "tarif", Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: 1px 2px 2px #000; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
-  .end button.primary, #menu button.primary { background: linear-gradient(120deg, #6a1a1e, #240709 50%, #4a1216); }
-  .end button:hover { border-color: #ffd86b; }
-  .end button:focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
-  .end kbd { font: inherit; font-size: 13px; padding: 1px 6px; border: 1px solid #bb9148; border-radius: 4px; color: #e7cca0; }
-  #menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(16, 9, 18, .93), rgba(4, 3, 8, .985)); color: #fff0bd; font-family: "tarif", Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; }
-  #menu section { width: min(760px, 100%); text-align: center; }
-  /* The logo: the game's name and its subhead in the display face, with Georgia standing in until it loads. */
-  .logo { margin: 0; font-family: "cc-primal-scream", "tarif", Georgia, "Times New Roman", serif; font-weight: 400; line-height: 1; color: #ff3b4e; text-shadow: 2px 3px 0 #2a0508, 0 0 18px rgba(179, 20, 28, .45); }
-  .logo .name { display: block; font-size: clamp(44px, 8vw, 96px); letter-spacing: .02em; }
-  .logo .sub { display: block; margin-top: .35em; font-size: clamp(18px, 2.6vw, 32px); letter-spacing: .08em; color: #e7cca0; }
   #loading .logo .name { font-size: clamp(32px, 5vw, 56px); }
   #loading .logo .sub { font-size: clamp(14px, 1.8vw, 20px); }
-  #menu h2 { margin: 0 0 18px; font-size: 32px; color: #ff3b4e; font-weight: 600; }
-  #menu h3 { margin: 22px 0 8px; font-size: 19px; color: #ffd86b; font-weight: 600; text-align: left; }
-  #menu .tagline { margin: 22px 0 36px; font-size: clamp(16px, 2vw, 21px); color: #e7cca0; font-style: italic; }
-  #menu .buttons { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 28px; }
-  #menu button { display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; font: 600 20px/1.2 "tarif", Georgia, "Times New Roman", serif; color: #fff0bd; text-shadow: inherit; cursor: pointer; border: 2px solid #bb9148; border-radius: 8px; background: linear-gradient(120deg, #4e3020, #170e0b 50%, #392419); box-shadow: inset 0 0 0 1px #ffe3a2, 0 3px 6px #000; }
-  #menu button:hover { border-color: #ffd86b; }
-  #menu :focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
-  #menu button.primary { background: linear-gradient(120deg, #6a1a1e, #240709 50%, #4a1216); }
-  #menu kbd { font: inherit; font-size: 13px; padding: 1px 6px; border: 1px solid #bb9148; border-radius: 4px; color: #e7cca0; }
-  #menu #howTo { width: min(1100px, 100%); }
-  #howTo .help-page { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: center; text-align: left; min-height: 330px; }
-  #howTo .help-page img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 3px solid #8d5b2d; border-radius: 6px; box-shadow: inset 0 0 0 1px #ffdc86, 0 6px 18px #000; background: #000; }
-  #howTo .help-page h3 { margin: 0 0 10px; font-size: 24px; }
-  #howTo ul { margin: 0; padding-left: 20px; text-align: left; color: #e7cca0; font-size: 16px; line-height: 1.5; }
-  #howTo li + li { margin-top: 6px; }
-  #howTo .pager { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 22px; }
-  #howTo .pager button { padding: 6px 16px; font-size: 17px; }
-  #howTo .pager button:disabled { opacity: .35; cursor: default; }
-  #howTo .dots { display: flex; gap: 8px; }
-  #howTo .dots i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #bb9148; background: #120c0c; }
-  #howTo .dots i.on { background: #c4202e; }
-  @media (max-width: 700px) { #howTo .help-page { grid-template-columns: 1fr; } }
-  #settingsView .row, #settingsView .check { display: flex; align-items: center; gap: 14px; margin: 10px 0; text-align: left; font-size: 17px; color: #e7cca0; }
-  #settingsView .row > span:first-child { width: 120px; color: #fff0bd; }
-  #settingsView input[type=range] { flex: 1; accent-color: #b3141c; }
-  #settingsView input[type=checkbox] { width: 18px; height: 18px; accent-color: #b3141c; }
-  #settingsView select { font: inherit; font-size: 16px; color: #fff0bd; background: #221419; border: 1px solid #bb9148; border-radius: 4px; padding: 3px 6px; }
-  #settingsView output { width: 44px; text-align: right; }
-  #settingsView .hint { margin: 0; text-align: left; font-size: 14px; color: #a99f8c; font-style: italic; }
 </style>
 <link rel="stylesheet" href="https://use.typekit.net/sbw6iaw.css">
 <link rel="stylesheet" href="assets/hud/hud.css">
+<link rel="stylesheet" href="assets/ui/ui.css">
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
 </script>
@@ -136,125 +61,152 @@
 </div>
 <div id="bars"></div>
 <canvas id="c" width="1280" height="720"></canvas>
-<div id="talk" class="panel" role="dialog" aria-live="polite" hidden>
-  <div class="portrait"><img id="talkVampire" alt="You, the vampire"></div>
+<div id="talk" class="frame" role="dialog" aria-live="polite" hidden>
+  <div class="niche"><div class="well"><img id="talkVampire" alt="You, the vampire"></div></div>
   <div class="talk-body">
     <h2 id="talkHouse"></h2>
+    <div class="divider"><i></i></div>
     <p class="knock" id="talkKnock">Knock, knock.</p>
     <p class="question" id="talkQ"></p>
     <p class="answer" id="talkA"></p>
-    <p class="outcome" id="talkOutcome"></p>
+    <div class="outcome-band" id="talkOutcomeBand"><img id="talkOutcomeIcon" alt=""><p id="talkOutcome"></p></div>
     <div class="feed" id="talkFeed"><span>You feed.</span><div class="meter"><i id="talkFeedBar"></i></div></div>
   </div>
-  <div class="portrait"><img id="talkVillager" alt="The resident at the door"></div>
+  <div class="niche"><div class="well"><img id="talkVillager" alt="The resident at the door"></div></div>
 </div>
-<div id="death" class="panel" role="status" hidden><strong id="deathText"></strong><span id="deathWhere"></span></div>
+<div id="death" class="frame" role="status" hidden><strong id="deathText"></strong><span id="deathWhere"></span></div>
 <div id="shade" hidden>
-  <section class="panel end">
+  <section class="frame end">
+    <img class="flourish" src="assets/ui/bat.png" alt="">
     <h2 id="endTitle"></h2>
     <p class="end-text" id="endText"></p>
-    <dl class="end-stats" id="endStats"></dl>
-    <button type="button" class="primary" id="againButton">Play again <kbd>R</kbd></button>
+    <dl class="feature" id="endFeature"></dl>
+    <p class="minor" id="endMinor"></p>
+    <div class="buttons">
+      <button type="button" class="btn primary" id="againButton">Play again <kbd>R</kbd></button>
+      <button type="button" class="btn" id="titleButton">Title screen</button>
+    </div>
   </section>
 </div>
+<div id="titleBackdrop" hidden><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i></div>
 <div id="menu">
   <section id="titleView">
-    <h1 class="logo"><span class="name">Graveyard Shifts</span><span class="sub">A Vampire Simulator</span></h1>
-    <p class="tagline">A new town every game. Curse it, one house at a time.</p>
-    <div class="buttons">
-      <button type="button" class="primary" data-action="start">Rise <kbd>Enter</kbd></button>
-      <button type="button" data-view="howTo">How to play <kbd>H</kbd></button>
-      <button type="button" data-view="settingsView">Settings <kbd>O</kbd></button>
-      <button type="button" data-action="fullscreen"><span class="fs-label">Full screen</span> <kbd>F</kbd></button>
+    <div class="title-col">
+      <img class="flourish" src="assets/ui/bat.png" alt="">
+      <h1 class="logo"><span class="name">Graveyard Shifts</span><span class="sub">A Vampire Simulator</span></h1>
+      <div class="divider"><i></i></div>
+      <p class="tagline">A new town every game. Curse it, one house at a time.</p>
+      <div class="actions">
+      <button type="button" class="btn primary big" data-action="start">Rise <kbd>Enter</kbd></button>
+      <div class="row">
+        <button type="button" class="btn" data-view="howTo">How to play <kbd>H</kbd></button>
+        <button type="button" class="btn" data-view="settingsView">Settings <kbd>O</kbd></button>
+      </div>
+      </div>
     </div>
+    <button type="button" class="btn small corner-btn" data-action="fullscreen"><span class="fs-label">Full screen</span> <kbd>F</kbd></button>
   </section>
-  <section id="howTo" hidden>
-    <h2>How to play</h2>
+  <section id="howTo" class="frame" hidden>
+    <div class="plaque"><h2>How to Play</h2><i class="gem"></i></div>
+    <nav class="steps" aria-label="Steps">
+      <button type="button" class="step" data-step="0"><img src="assets/ui/icons/bat.png" alt=""><span>1 The goal</span></button>
+      <button type="button" class="step" data-step="1"><img src="assets/ui/icons/knocker.png" alt=""><span>2 Knock</span></button>
+      <button type="button" class="step" data-step="2"><img src="assets/ui/icons/curse.png" alt=""><span>3 Curse</span></button>
+      <button type="button" class="step" data-step="3"><img src="assets/ui/icons/sun.png" alt=""><span>4 Daylight</span></button>
+      <button type="button" class="step" data-step="4"><img src="assets/ui/icons/goblet.png" alt=""><span>5 Victory</span></button>
+      <span class="count" id="helpCount">1 / 5</span>
+    </nav>
     <div class="help-page">
-      <img src="assets/help/help_move.jpg" alt="The vampire walks the town at night." loading="lazy">
-      <div>
-        <h3>Rise and walk</h3>
-        <ul>
-          <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys move. Walk up to a door and press <kbd>W</kbd> or <kbd>E</kbd>.</li>
-          <li><span class="gfx">Drag with the left mouse button to turn and tilt the view; movement follows it. The wheel zooms and a double click resets the view.</span></li>
-          <li>Hold <kbd>Space</kbd> to fast-forward. <kbd>P</kbd> pauses, <kbd>R</kbd> restarts, <kbd>M</kbd> mutes, <kbd>F</kbd> toggles full screen, <kbd>H</kbd> shows this help and <kbd>Esc</kbd> opens the settings.</li>
-          <li>Nobody can cross the river except by its two bridges.</li>
-        </ul>
+      <figure class="shot"><img src="assets/help/help_goal.jpg" alt="The town at night: lit homes, a cursed home and the crypt."><span class="callout" style="left:20%;top:14%" data-target="8,40" aria-hidden="true">1</span><span class="callout" style="left:68%;top:15%" data-target="50,30" aria-hidden="true">2</span><span class="callout" style="left:62%;top:56%" data-target="37.5,62" aria-hidden="true">3</span></figure>
+      <div class="lesson surface">
+        <h3>The goal</h3>
+        <ol class="numbered">
+          <li>Each night, knock on lit doors and get yourself invited in. Being invited is feeding; three nights without it and you starve.</li>
+          <li>Every house you enter is cursed. Curse them all and the town is yours.</li>
+          <li>Sunlight kills. Before dawn, shelter in the crypt or in a cursed house.</li>
+        </ol>
+        <p class="keys"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> move &middot; <kbd>E</kbd> knock or enter &middot; hold <kbd>Space</kbd> to hurry time &middot; <kbd>P</kbd> pause &middot; <kbd>R</kbd> restart &middot; <kbd>M</kbd> mute &middot; <kbd>F</kbd> full screen &middot; <kbd>H</kbd> help &middot; <kbd>Esc</kbd> settings<span class="gfx"> &middot; drag to turn the view, wheel to zoom</span></p>
       </div>
     </div>
     <div class="help-page" hidden>
-      <img src="assets/help/help_knock.jpg" alt="The doorstep talk with a resident." loading="lazy">
-      <div>
+      <figure class="shot"><img src="assets/help/help_knock.jpg" alt="The vampire at a lit cottage door."><span class="callout" style="left:70%;top:66%" data-target="57,50" aria-hidden="true">1</span><span class="callout" style="left:34%;top:52%" data-target="49.5,46" aria-hidden="true">2</span><span class="callout" style="left:40%;top:14%" data-target="55,24" aria-hidden="true">3</span></figure>
+      <div class="lesson surface">
         <h3>Knock on doors</h3>
-        <ul>
-          <li>At night, knock on a lit house. The doorstep talk plays out by itself.</li>
-          <li>Your first knock each night is 2 to 1 to get you in; the rest are even. A house that turns you away stays wary until the next night.</li>
-          <li>Being invited in is feeding. Any vampire that goes three nights without it starves.</li>
-        </ul>
+        <ol class="numbered">
+          <li><span>Walk up to a lit door at night and press <kbd>E</kbd>.</span></li>
+          <li>The talk plays out by itself. Your first knock each night is 2 to 1 to get in; after that it is even.</li>
+          <li>Invited in? You feed, and the house is cursed. Turned away? That house stays wary until the next night.</li>
+        </ol>
       </div>
     </div>
     <div class="help-page" hidden>
-      <img src="assets/help/help_curse.jpg" alt="Clean, cursed and occupied houses side by side." loading="lazy">
-      <div>
+      <figure class="shot"><img src="assets/help/help_curse.jpg" alt="A decaying cursed house, a vampire's house and the house you shelter in."><span class="callout" style="left:68%;top:84%" data-target="47,72" aria-hidden="true">1</span><span class="callout" style="left:10%;top:14%" data-target="18,36" aria-hidden="true">2</span><span class="callout" style="left:72%;top:18%" data-target="52,38" aria-hidden="true">3</span></figure>
+      <div class="lesson surface">
         <h3>Curse the town</h3>
-        <ul>
-          <li>A house you enter is cursed: its door hangs open and it slowly decays. After three nights it raises a vampire of its own.</li>
-          <li>Windows glow red where you shelter, orange where another vampire lives, and yellow in a clean home.</li>
-          <li>One vampire to a house or crypt. Other vampires may take the crypt, or be home when you need a bed.</li>
-        </ul>
+        <ol class="numbered">
+          <li>A cursed house's door hangs open, and it decays a little more each night.</li>
+          <li>After three nights it raises a vampire of its own; its windows glow orange.</li>
+          <li>Your shelter glows red. One vampire to a house or crypt, so others may take your bed.</li>
+        </ol>
       </div>
     </div>
     <div class="help-page" hidden>
-      <img src="assets/help/help_day.jpg" alt="A hunter checks a house by day." loading="lazy">
-      <div>
+      <figure class="shot"><img src="assets/help/help_day.jpg" alt="A hunter checks a house by day while the vampire sleeps in the crypt."><span class="callout" style="left:28%;top:30%" data-target="50,55" aria-hidden="true">1</span></figure>
+      <div class="lesson surface">
         <h3>Hide from the sun and the hunters</h3>
-        <ul>
-          <li>Sunlight kills. By day, shelter in the crypt or inside a cursed house.</li>
+        <ol class="numbered">
           <li>Each morning every hunter visits one house and purges it if it is cursed. Long-cursed houses draw them more.</li>
-          <li>The main hunter kills any vampire he finds, you included. No other hunter can kill you, and nobody reaches you in the crypt.</li>
-          <li>A house purged by the main hunter sends him a new hunter. A lesser vampire beats a recruit 2 to 1.</li>
-        </ul>
+          <li>The main hunter kills any vampire he finds, you included. Nobody reaches you in the crypt.</li>
+          <li>A house the main hunter purges gives him a recruit. Recruits lose to a vampire 2 to 1.</li>
+        </ol>
       </div>
     </div>
     <div class="help-page" hidden>
-      <img src="assets/help/help_win.jpg" alt="The house of worship, with its cross dimming as the town falls." loading="lazy">
-      <div>
+      <figure class="shot"><img src="assets/help/help_win.jpg" alt="The vampires storm the house of worship."><span class="callout" style="left:30%;top:13%" data-target="50,11" aria-hidden="true">1</span><span class="callout" style="left:28%;top:64%" data-target="51,50" aria-hidden="true">2</span></figure>
+      <div class="lesson surface">
         <h3>Take the town</h3>
-        <ul>
-          <li>The cross on the house of worship dims as more of the town is cursed.</li>
+        <ol class="numbered">
+          <li>The cross on the house of worship dims as the town falls.</li>
           <li>Curse every other house and the vampires storm the house of worship.</li>
-          <li>If the sun or the main hunter gets you, you rise again in the longest-cursed house. You only die for good with no cursed house left.</li>
-        </ul>
+          <li>Destroyed? You rise again in the longest-cursed house. It is only over when no cursed house is left.</li>
+        </ol>
       </div>
     </div>
-    <div class="pager">
-      <button type="button" data-action="prev" aria-label="Previous page">&lsaquo; Prev</button>
-      <div class="dots" aria-hidden="true"></div>
-      <button type="button" data-action="next" aria-label="Next page">Next &rsaquo;</button>
-    </div>
-    <div class="buttons">
-      <button type="button" data-action="back">Back <kbd>Esc</kbd></button>
-      <button type="button" class="primary" data-action="start" data-title-only>Rise <kbd>Enter</kbd></button>
+    <div class="help-foot">
+      <button type="button" class="btn" data-action="back">Back <kbd>Esc</kbd></button>
+      <div class="pager">
+        <button type="button" class="btn small" data-action="prev" aria-label="Previous page">&lsaquo; Prev</button>
+        <i class="gem" aria-hidden="true"></i>
+        <button type="button" class="btn small" data-action="next" aria-label="Next page">Next &rsaquo;</button>
+      </div>
+      <button type="button" class="btn primary" data-action="start" data-title-only>Rise <kbd>Enter</kbd></button>
     </div>
   </section>
-  <section id="settingsView" hidden>
-    <h2>Settings</h2>
-    <h3>Sound</h3>
-    <label class="row"><span>Music</span><input type="range" id="setMusic" min="0" max="100" step="5"><output id="setMusicVal"></output></label>
-    <label class="row"><span>Effects</span><input type="range" id="setSfx" min="0" max="100" step="5"><output id="setSfxVal"></output></label>
-    <label class="check"><input type="checkbox" id="setMute"> Mute all sound <kbd>M</kbd></label>
-    <div class="gfx">
-      <h3>Graphics</h3>
-      <p class="hint">Turn these down if the game runs slowly.</p>
-      <label class="row"><span>Shadows</span><select id="setShadows"><option value="high">High</option><option value="low">Low</option><option value="off">Off</option></select></label>
-      <label class="row"><span>Resolution</span><select id="setRes"><option value="auto">Automatic</option><option value="1">Full</option><option value="0.75">75%</option><option value="0.5">50%</option></select></label>
-      <label class="check"><input type="checkbox" id="setBlur"> Tilt-shift blur and colour grading</label>
-      <label class="check"><input type="checkbox" id="setAa"> Smooth edges (antialiasing)</label>
+  <section id="settingsView" class="frame" hidden>
+    <div class="plaque"><img src="assets/ui/icons/gear.png" alt=""><h2>Settings</h2><i class="gem"></i></div>
+    <div class="inner surface">
+    <div class="set-head"><h3>Sound</h3></div>
+    <div class="set-body">
+      <label class="set-row"><span>Music</span><input type="range" id="setMusic" min="0" max="100" step="5"><output id="setMusicVal"></output></label>
+      <label class="set-row"><span>Effects</span><input type="range" id="setSfx" min="0" max="100" step="5"><output id="setSfxVal"></output></label>
+      <label class="set-check"><input type="checkbox" id="setMute"> Mute all sound <kbd>M</kbd></label>
     </div>
-    <div class="buttons">
-      <button type="button" data-action="fullscreen"><span class="fs-label">Full screen</span> <kbd>F</kbd></button>
-      <button type="button" class="gfx" data-action="graphics">Fastest graphics</button>
-      <button type="button" class="primary" data-action="back">Back <kbd>Esc</kbd></button>
+    <div class="gfx">
+      <div class="set-head"><h3>Graphics</h3></div>
+      <div class="set-body">
+        <div class="set-row"><span>Quality</span><div class="seg" role="group" aria-label="Quality">
+          <button type="button" data-quality="low">Low</button><button type="button" data-quality="balanced">Balanced</button><button type="button" data-quality="high">High</button><button type="button" data-quality="custom" tabindex="-1">Custom</button>
+        </div></div>
+        <label class="set-row"><span>Shadows</span><select id="setShadows"><option value="high">High</option><option value="low">Low</option><option value="off">Off</option></select></label>
+        <label class="set-row"><span>Resolution</span><select id="setRes"><option value="auto">Automatic</option><option value="1">Full</option><option value="0.75">75%</option><option value="0.5">50%</option></select></label>
+        <label class="set-check"><input type="checkbox" id="setBlur"> Tilt-shift blur and colour grading</label>
+        <label class="set-check"><input type="checkbox" id="setAa"> Smooth edges (antialiasing)</label>
+      </div>
+    </div>
+    </div>
+    <div class="set-foot">
+      <button type="button" class="btn" data-action="fullscreen"><span class="fs-label">Full screen</span> <kbd>F</kbd></button>
+      <button type="button" class="btn primary" data-action="back">Back <kbd>Esc</kbd></button>
     </div>
   </section>
 </div>

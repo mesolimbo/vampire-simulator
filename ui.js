@@ -21,7 +21,8 @@ function footerText() {
     else if (isNight()) { desc = 'Hold Space to pass time.'; action = ['E', 'Leave']; }
     else desc = 'The sun is up. Hold Space to pass time.';
   } else if (p.state === 'talk' && talk) {
-    title = talk.house.name; desc = 'You knock.';
+    title = talk.house.name;
+    desc = talk.feeding ? 'Invited in. You feed.' : talk.t >= TUNE.talkBeatSeconds * 3 ? (talk.won ? 'Invited in' : 'Turned away') : 'You knock.';
   } else if (p.state === 'auto') {
     desc = 'Every door is shut to you tonight. You return to shelter.';
   } else if (p.state === 'walk') {
@@ -70,8 +71,17 @@ function updateHud() {
 const PORTRAITS = 'assets/portraits/';
 const VILLAGERS = 10;
 // Fetch every portrait up front, so none pops in late halfway through a talk.
-for (const name of ['knock', 'invited', 'refused', 'feed']) new Image().src = `${PORTRAITS}vampire_${name}.jpg`;
-for (let i = 1; i <= VILLAGERS; i++) for (const mood of ['neutral', 'displeased', 'charmed']) new Image().src = `${PORTRAITS}villagers/v${String(i).padStart(2, '0')}_${mood}.jpg`;
+// Every portrait and piece of menu art is fetched and decoded before the game can start (render3d waits for
+// artReady), so nothing pops in late. The images are kept, so the browser keeps them decoded.
+const preloaded = [];
+const preload = (src) => { const img = new Image(); img.src = src; preloaded.push(img); return img.decode().catch(() => {}); };
+const artReady = Promise.all([
+  ...['knock', 'invited', 'refused', 'feed'].map((n) => preload(`${PORTRAITS}vampire_${n}.jpg`)),
+  ...Array.from({ length: VILLAGERS }, (_, i) => ['neutral', 'displeased', 'charmed'].map((m) => preload(`${PORTRAITS}villagers/v${String(i + 1).padStart(2, '0')}_${m}.jpg`))).flat(),
+  ...['bat', 'knocker', 'curse', 'sun', 'goblet', 'moon', 'cottage', 'door-open', 'door-shut', 'gear'].map((n) => preload(`assets/ui/icons/${n}.png`)),
+  ...['goal', 'knock', 'curse', 'day', 'win'].map((n) => preload(`assets/help/help_${n}.jpg`)),
+  preload('assets/ui/bat.png'), preload('assets/ui/corner.png'), preload('assets/title/title_backdrop.jpg'),
+]);
 
 const panelEl = (id) => document.getElementById(id);
 function setPortrait(img, src) {
@@ -91,14 +101,19 @@ function updateTalkPanel() {
   const villager = `${PORTRAITS}villagers/v${String((talk.house.id - 1) % VILLAGERS + 1).padStart(2, '0')}_`;
   const outcome = shown >= 4;
   setPortrait(panelEl('talkVampire'), `${PORTRAITS}vampire_${talk.feeding ? 'feed' : outcome ? (talk.won ? 'invited' : 'refused') : 'knock'}.jpg`);
-  setPortrait(panelEl('talkVillager'), shown < 2 ? null : `${villager}${outcome ? (talk.won ? 'charmed' : 'displeased') : 'neutral'}.jpg`);
+  setPortrait(panelEl('talkVillager'), `${villager}${outcome ? (talk.won ? 'charmed' : 'displeased') : 'neutral'}.jpg`);
   box.classList.toggle('feeding', talk.feeding);
   showText('talkHouse', talk.house.name);
   showText('talkKnock', 'Knock, knock.');
   showText('talkQ', shown >= 2 ? `“${talk.q}”` : '');
   showText('talkA', shown >= 3 ? `You: “${talk.a}”` : '');
+  // The outcome gets its own band, with an open or a bolted door.
+  const band = panelEl('talkOutcomeBand');
+  band.hidden = !outcome;
+  band.className = `outcome-band ${talk.won ? 'won' : 'lost'}`;
   showText('talkOutcome', outcome ? talk.outcome : '');
-  panelEl('talkOutcome').className = `outcome ${talk.won ? 'won' : 'lost'}`;
+  const icon = `assets/ui/icons/door-${talk.won ? 'open' : 'shut'}.png`;
+  if (outcome && panelEl('talkOutcomeIcon').getAttribute('src') !== icon) panelEl('talkOutcomeIcon').src = icon;
   panelEl('talkFeed').hidden = !talk.feeding;
   if (talk.feeding) panelEl('talkFeedBar').style.width = `${Math.round(100 * (1 - player.feed / TUNE.feedSeconds))}%`;
 }
@@ -113,24 +128,29 @@ function updateDeathPanel() {
 }
 
 let endShown = null;
+// The end screen leads with the outcome, then three featured figures, then the rest on one quiet line.
 function updateEndPanel() {
   if (mode !== 'over') { endShown = null; return; }
   if (endShown === endText) return;
   endShown = endText;
-  const count = (s) => houses.filter((h) => !h.isHQ && h.state === s).length;
-  panelEl('shade').querySelector('.end').classList.toggle('won', endText.won);
+  const cursed = houses.filter((h) => !h.isHQ && h.state === 'cursed').length;
   panelEl('endTitle').textContent = endText.won ? 'The town is yours' : 'You are dust';
-  panelEl('endText').textContent = endText.text;
-  const rows = [['Nights', nightNum], ['Invitations won', stats.invited], ['Doors slammed', stats.slammed], ['Deaths', stats.deaths],
-    ['Cursed houses', count('cursed')], ['Clean houses', count('clean')], ['Hunters alive', hunterCount()]];
-  const dl = panelEl('endStats');
-  dl.replaceChildren(...rows.map(([label, value]) => {
-    const d = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd');
-    dt.textContent = label; dd.textContent = value; d.append(dt, dd); return d;
+  panelEl('endText').textContent = endText.won ? 'The vampires broke into the house of worship. The hunters are no more.' : endText.text;
+  const featured = [['moon', 'Nights survived', nightNum], ['cottage', 'Homes cursed', cursed], ['door-open', 'Invitations won', stats.invited]];
+  panelEl('endFeature').replaceChildren(...featured.map(([icon, label, value]) => {
+    const d = document.createElement('div'), img = document.createElement('img'), text = document.createElement('div');
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    d.className = 'surface'; img.src = `assets/ui/icons/${icon}.png`; img.alt = '';
+    dt.textContent = label; dd.textContent = value; text.append(dt, dd); d.append(img, text); return d;
   }));
+  const minor = [`Doors slammed ${stats.slammed}`, `Deaths ${stats.deaths}`];
+  if (!endText.won) minor.push(`Hunters left ${hunterCount()}`);
+  panelEl('endMinor').textContent = minor.join('  \u00b7  ');
   panelEl('againButton').focus({ preventScroll: true });
 }
 panelEl('againButton').addEventListener('click', () => { reset(); mode = 'play'; paused = false; document.activeElement.blur(); });
+// Back to the title screen, over a fresh town.
+panelEl('titleButton').addEventListener('click', () => { reset(); mode = 'title'; paused = false; document.activeElement.blur(); });
 
 function updatePanels() {
   updateTalkPanel();

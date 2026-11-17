@@ -181,11 +181,19 @@ function layout(rnd) {
   };
   // With a bank given, takes the spot farthest from the river out of ten random ones on that bank.
   // `edge` is how many tiles to stay clear of the map's border.
-  const place = (padX, padY, bank = 0, edge = 1) => {
+  // The graveyard spreads over the tiles round the crypt (tombstones from 3 tiles left to 5 right, 2 up to 5 down,
+  // and the bed a tile beyond), and none of it may touch a road or the river.
+  const yardClear = (tx, ty) => {
+    for (let y = ty - 3; y <= ty + 6; y++) for (let x = tx - 4; x <= tx + 6; x++) {
+      if (x < 0 || y < 0 || x >= COLS || y >= ROWS || keepOut[y * COLS + x]) return false;
+    }
+    return true;
+  };
+  const place = (padX, padY, bank = 0, edge = 1, yard = false) => {
     let best = null;
-    for (let tries = 0, found = 0; tries < 400 && found < (bank ? 10 : 1); tries++) {
+    for (let tries = 0, found = 0; tries < 600 && found < (bank ? 10 : 1); tries++) {
       const tx = edge + Math.floor(rnd() * (COLS - 2 - 2 * edge)), ty = edge + Math.floor(rnd() * (ROWS - 2 - 2 * edge));
-      if (!fits(tx, ty, padX, padY)) continue;
+      if (!fits(tx, ty, padX, padY) || (yard && !yardClear(tx, ty))) continue;
       const reach = side(river, (tx + 1.5) * T, (ty + 1) * T) * bank;
       if (reach < 0) continue;
       found++;
@@ -195,7 +203,7 @@ function layout(rnd) {
     return best;
   };
   const bank = rnd() < 0.5 ? 1 : -1;
-  const cryptSpot = place(8, 7, bank, 3), churchSpot = cryptSpot && place(5, 4, -bank);   // wide padding leaves room for the graveyard
+  const cryptSpot = place(8, 7, bank, 3, true), churchSpot = cryptSpot && place(5, 4, -bank);   // wide padding leaves room for the graveyard
   if (!churchSpot) return false;
   for (let i = 0; i < HOMES; i++) if (!place(5, 4)) return false;
 

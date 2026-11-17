@@ -4,15 +4,19 @@
 
 const SETTINGS_KEY = 'vampire-settings';
 const DEFAULT_SETTINGS = { music: 20, sfx: 90, muted: false, shadows: 'high', resolution: 'auto', blur: true, aa: true };
-const FASTEST_GRAPHICS = { shadows: 'off', resolution: '0.5', blur: false, aa: false };
-const BEST_GRAPHICS = { shadows: 'high', resolution: 'auto', blur: true, aa: true };
-const isFastest = () => Object.entries(FASTEST_GRAPHICS).every(([k, v]) => settings[k] === v);
+// Graphics presets; any other mix of the four settings shows as Custom.
+const QUALITY = {
+  low: { shadows: 'off', resolution: '0.5', blur: false, aa: false },
+  balanced: { shadows: 'low', resolution: '0.75', blur: true, aa: false },
+  high: { shadows: 'high', resolution: 'auto', blur: true, aa: true },
+};
+const qualityName = () => Object.keys(QUALITY).find((q) => Object.entries(QUALITY[q]).every(([k, v]) => settings[k] === v)) || 'custom';
 const settings = (() => {
   try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (e) { return { ...DEFAULT_SETTINGS }; }
 })();
 
 const menu = (() => {
-  const byId = (id) => document.getElementById(id), el = byId('menu'), shade = byId('shade');
+  const byId = (id) => document.getElementById(id), el = byId('menu'), shade = byId('shade'), backdrop = byId('titleBackdrop');
   const views = ['titleView', 'howTo', 'settingsView'].map(byId);
   const controls = { music: byId('setMusic'), sfx: byId('setSfx'), muted: byId('setMute'), shadows: byId('setShadows'), resolution: byId('setRes'), blur: byId('setBlur'), aa: byId('setAa') };
   let view = 'titleView', inGame = false, wasPaused = false;
@@ -22,8 +26,9 @@ const menu = (() => {
     for (const [k, c] of Object.entries(controls)) { if (c.type === 'checkbox') c.checked = settings[k]; else c.value = settings[k]; }
     byId('setMusicVal').textContent = `${settings.music}%`;
     byId('setSfxVal').textContent = `${settings.sfx}%`;
-    // One button swaps between the fastest graphics and the best.
-    el.querySelector('[data-action=graphics]').textContent = isFastest() ? 'Best graphics' : 'Fastest graphics';
+    for (const r of [controls.music, controls.sfx]) r.style.setProperty('--fill', `${r.value}%`);
+    const q = qualityName();
+    el.querySelectorAll('[data-quality]').forEach((b) => { b.classList.toggle('on', b.dataset.quality === q); b.setAttribute('aria-pressed', b.dataset.quality === q); });
     audio.configure(settings);
     if (window.render3d) window.render3d.configure(settings);
   }
@@ -34,9 +39,10 @@ const menu = (() => {
   const open = () => mode === 'title' || inGame;
   function show(name) {
     view = name;
+    el.hidden = !open();   // visible before measuring the help pages
     views.forEach((v) => { v.hidden = v.id !== name; });
     el.querySelectorAll('[data-title-only]').forEach((b) => { b.hidden = inGame; });
-    if (name === 'howTo') turnPage(0, true);
+    if (name === 'howTo') { turnPage(0, true); evenPages(); }
     const first = byId(name).querySelector('button.primary:not([hidden])') || byId(name).querySelector('[data-action=back]') || byId(name).querySelector('button');
     first.focus({ preventScroll: true });
     el.scrollTop = 0;
@@ -55,14 +61,37 @@ const menu = (() => {
     document.activeElement.blur();
   }
 
-  // How to play is a few pages, each with a picture from the game.
-  const pages = [...byId('howTo').querySelectorAll('.help-page')], dots = byId('howTo').querySelector('.dots');
-  pages.forEach(() => dots.appendChild(document.createElement('i')));
+  // How to play is five named steps, each a picture from the game and three short lessons.
+  const pages = [...byId('howTo').querySelectorAll('.help-page')], steps = [...byId('howTo').querySelectorAll('.step')];
   let page = 0;
-  function turnPage(step, reset = false) {
-    page = reset ? 0 : Math.min(pages.length - 1, Math.max(0, page + step));
+  // Leaders from each badge that names a target to that point of its picture.
+  function drawLeaders() {
+    byId('howTo').querySelectorAll('.leader').forEach((l) => l.remove());
+    byId('howTo').querySelectorAll('.callout[data-target]').forEach((c) => {
+      const fig = c.parentElement, w = fig.clientWidth, h = fig.clientHeight;
+      if (!w) return;
+      const [tx, ty] = c.dataset.target.split(',').map(Number);
+      const x0 = parseFloat(c.style.left) / 100 * w, y0 = parseFloat(c.style.top) / 100 * h, x1 = tx / 100 * w, y1 = ty / 100 * h;
+      const len = Math.hypot(x1 - x0, y1 - y0) - 5, l = document.createElement('i');
+      l.className = 'leader';
+      Object.assign(l.style, { left: `${x0}px`, top: `${y0 - 1}px`, width: `${len}px`, transform: `rotate(${Math.atan2(y1 - y0, x1 - x0)}rad)` });
+      fig.appendChild(l);
+    });
+  }
+  function evenPages() {
+    pages.forEach((p) => { p.style.minHeight = ''; });
+    let tallest = 0;
+    pages.forEach((p) => { const was = p.hidden; p.hidden = false; tallest = Math.max(tallest, p.offsetHeight); p.hidden = was; });
+    pages.forEach((p) => { p.style.minHeight = `${tallest}px`; });
+    drawLeaders();
+  }
+  addEventListener('resize', () => { if (view === 'howTo' && open()) evenPages(); });
+  function turnPage(step, reset = false, to = null) {
+    page = reset ? 0 : to !== null ? to : Math.min(pages.length - 1, Math.max(0, page + step));
     pages.forEach((p, i) => { p.hidden = i !== page; });
-    [...dots.children].forEach((d, i) => d.classList.toggle('on', i === page));
+    drawLeaders();
+    steps.forEach((s, i) => { s.classList.toggle('on', i === page); s.setAttribute('aria-current', i === page ? 'step' : 'false'); });
+    byId('helpCount').textContent = `${page + 1} / ${pages.length}`;
     byId('howTo').querySelector('[data-action=prev]').disabled = page === 0;
     byId('howTo').querySelector('[data-action=next]').disabled = page === pages.length - 1;
   }
@@ -70,13 +99,14 @@ const menu = (() => {
   el.addEventListener('click', (ev) => {
     const b = ev.target.closest('button');
     if (!b) return;
-    if (b.dataset.view) openInGame(b.dataset.view);
+    if (b.dataset.step) turnPage(0, false, +b.dataset.step);
+    else if (b.dataset.quality && b.dataset.quality !== 'custom') { Object.assign(settings, QUALITY[b.dataset.quality]); apply(); }
+    else if (b.dataset.view) openInGame(b.dataset.view);
     else if (b.dataset.action === 'start') start();
     else if (b.dataset.action === 'back') back();
     else if (b.dataset.action === 'prev') turnPage(-1);
     else if (b.dataset.action === 'next') turnPage(1);
     else if (b.dataset.action === 'fullscreen') toggleFullscreen();
-    else if (b.dataset.action === 'graphics') { Object.assign(settings, isFastest() ? BEST_GRAPHICS : FASTEST_GRAPHICS); apply(); }
   });
 
   // Keys while a menu is open. Returns true when the key belongs to the menu, so the game ignores it.
@@ -112,9 +142,15 @@ const menu = (() => {
   function toggleMute() { settings.muted = !settings.muted; apply(); }
 
   // Each frame: menus show on the title screen or when opened in game; the shade dims the 3D view's end screen.
+  // The title screen shows its render of the town behind every menu; over a game the menus dim the town lightly.
   function sync() {
     el.hidden = !open();
+    backdrop.hidden = mode !== 'title';
+    el.classList.toggle('scrim', view !== 'titleView');
+    el.classList.toggle('on-title', mode === 'title');
     shade.hidden = mode !== 'over' || VIEW_2D;
+    document.documentElement.classList.toggle('game-over', mode === 'over' && !VIEW_2D);
+    document.documentElement.classList.toggle('no-cursor', !!document.fullscreenElement && mode === 'play' && !open());
   }
 
   apply();

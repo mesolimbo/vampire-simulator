@@ -172,7 +172,7 @@ vec2 riverLocal(vec2 p) { vec2 d = p - uRiver.xy; return vec2(d.x * uRiver.z - d
 
 const A = {};   // models and textures shared by every map
 async function loadAssets() {
-  const names = ['house', 'house_door', 'crypt', 'crypt_door', 'church', 'tombstone_a', 'tombstone_b', 'tombstone_c', 'tree_a', 'tree_b', 'bush', 'bridge_span', 'bridge_abutment', 'bridge_pier', 'road_straight', 'river_straight', 'characters/player', 'characters/convert', 'characters/hunter', 'characters/converted_hunter'];
+  const names = ['house', 'house_door', 'crypt', 'crypt_door', 'church', 'tombstone_a', 'tombstone_b', 'tombstone_c', 'tree_a', 'tree_b', 'bush', 'flower_bush', 'bridge_span', 'bridge_abutment', 'bridge_pier', 'road_straight', 'river_straight', 'characters/player', 'characters/convert', 'characters/hunter', 'characters/converted_hunter'];
   await Promise.all(names.map(async (n) => { A[n] = await loadGLB(n); }));
   // The generated materials are marked fully metallic, which renders near black without reflections. Nothing here is metal.
   Object.values(A).forEach((m) => eachMaterial(m, (mat) => { mat.metalness = 0; mat.metalnessMap = null; if (mat.name === 'riverbed') mat.normalScale.set(2.2, 2.2); if (!mat.transparent) mat.roughness = Math.max(mat.roughness, 0.85); }));
@@ -297,6 +297,12 @@ diffuseColor.a *= 1.0 - smoothstep(2.0 + 0.7 * rNoise(vRoadPos.xz * 0.8) + 0.4 *
   // Tombstones, trees and the bridge kit, sized once.
   A.stones = [fit(A.tombstone_a, { height: 1.6 }), fit(A.tombstone_b, { height: 1.9 }), fit(A.tombstone_c, { height: 1.5 })];
   A.plants = [[fit(A.tree_a, { height: 6.5 }), 3.2], [fit(A.tree_b, { height: 8 }), 2.6], [fit(A.bush, { height: 1.4 }), 1.2]];
+  // Flowering bushes in four petal colours. The petals are white in the model; each variant tints them.
+  A.flowerBushes = [0xffffff, 0xffb3cf, 0xc9b3ff, 0xfff0a0].map((tint) => {
+    const b = fit(A.flower_bush.clone(), { height: 1.25 });
+    b.traverse((o) => { if (o.isMesh && o.material.name === 'flower') { o.material = o.material.clone(); o.material.color.set(tint); o.material.roughness = 0.75; } });
+    return b;
+  });
   A.span = fit(A.bridge_span, { width: BRH * 2, length: 3 });
   A.abut = fit(A.bridge_abutment, { width: BRH * 2, length: 3 });
   A.pier = fit(A.bridge_pier, { width: 7 });
@@ -598,7 +604,7 @@ diffuseColor.rgb *= 1.0 - uLit * texture2D(emissiveMap, vEmissiveMapUv).r;
     unit.scale.setScalar(HOUSE_SCALE); unit.position.set(x, heightAt(x, z + 1) + 0.45 * HOUSE_SCALE, z + 1);
     shadows(unit); root.add(unit);
     const mats = []; eachMaterial(model, (m) => mats.push(m));
-    houseViews.set(h, { unit, hinge, uni, mats, decay: 0, glow: new THREE.Color(0) });
+    houseViews.set(h, { unit, hinge, uni, mats, decay: 0, glow: new THREE.Color(0), bushes: [], wilt: -1 });
   }
 
   // ---- house of worship on its hill ----
@@ -660,6 +666,51 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   // ---- trees and bushes: in the outskirts, and the odd bush in town away from every walkway ----
   const taken = [...homes.map(({ x, z }) => [x, z + 1, 9]), [churchAt.x, churchAt.z, 21], [yard.x, yard.z, Math.max(yard.w, yard.d) / 2 + 4]];
   const free = (x, z, r) => riverDist(x, z) > RH + 2 + r && roadDist(x, z) > RDH + 1.5 + r && taken.every(([tx, tz, tr]) => Math.hypot(x - tx, z - tz) > tr + r);
+  // A flowering bush within 10 m of a home wilts with that home's curse (see syncBuildings), so each has its own
+  // materials.
+  const flowerBush = (x, z) => {
+    const p = A.flowerBushes[Math.floor(Math.random() * A.flowerBushes.length)].clone();
+    p.position.set(x, heightAt(x, z) - 0.05, z); p.rotation.y = Math.random() * Math.PI * 2; p.scale.multiplyScalar(0.75 + Math.random() * 0.4);
+    shadows(p); root.add(p);
+    let near = null, best = 10;
+    for (const { h, x: hx, z: hz } of homes) { const d = Math.hypot(x - hx, z - hz); if (d < best) { best = d; near = h; } }
+    if (!near) return;
+    const bush = { mats: [], scale: p.scale.y, obj: p };
+    p.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      const entry = { m: o.material, flower: o.material.name === 'flower', base: o.material.color.clone(), wilt: { value: 0 } };
+      if (!entry.flower) {   // the leaf texture loses its green as it wilts, so the brown tint reads as dead leaves
+        o.material.onBeforeCompile = (sh) => {
+          sh.uniforms.uWilt = entry.wilt;
+          sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+uniform float uWilt;`).replace('#include <map_fragment>', `#include <map_fragment>
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))), uWilt * 0.85);`);
+        };
+        o.material.customProgramCacheKey = () => 'wilt';
+      }
+      bush.mats.push(entry);
+    });
+    houseViews.get(near).bushes.push(bush);
+  };
+  // Flowering bushes beside most homes, clear of the doorstep, and scattered over the town's open grass.
+  for (const { x, z } of homes) {
+    for (const side of [-1, 1]) {
+      if (Math.random() < 0.3) continue;
+      const bx = x + side * (4.4 + Math.random() * 0.8), bz = z + 1 + (Math.random() * 2 - 1) * 1.6;
+      if (riverDist(bx, bz) > RH + 3 && roadDist(bx, bz) > RDH + 1.2) flowerBush(bx, bz);
+    }
+  }
+  for (let i = 0, n = 0; i < 3000 && n < 70; i++) {
+    const x = (Math.random() * 2 - 1) * (WORLD_W * S / 2 + 6), z = (Math.random() * 2 - 1) * (WORLD_H * S / 2 + 6);
+    if (!free(x, z, 1.2)) continue;
+    flowerBush(x, z); taken.push([x, z, 2.2]); n++;
+    // often a second or third bush close by, so they gather in clumps
+    for (let k = Math.random() < 0.5 ? Math.floor(1 + Math.random() * 2) : 0; k--;) {
+      const a = Math.random() * Math.PI * 2, cx = x + Math.cos(a) * 1.3, cz = z + Math.sin(a) * 1.3;
+      if (free(cx, cz, 0.6) || Math.hypot(cx - x, cz - z) < 2.3) { if (riverDist(cx, cz) > RH + 3 && roadDist(cx, cz) > RDH + 1.5) { flowerBush(cx, cz); n++; } }
+    }
+  }
   let placed = 0;
   for (let i = 0; i < 3000 && placed < 220; i++) {
     const x = (Math.random() * 2 - 1) * (GROUND - 6), z = (Math.random() * 2 - 1) * (GROUND - 6);
@@ -922,15 +973,27 @@ const CROSS = { red: new THREE.Color(1, 0, 0.03), white: new THREE.Color(1, 1, 1
 const tmpColor = new THREE.Color();
 let nightK = 0;   // 0 in full daylight, 1 in full night
 
+const WILTED = { petal: new THREE.Color(0x4a2a1c), leaf: new THREE.Color(0xa88850) };
 function syncBuildings(dt) {
+  const takeover = (rally && rally.broke) || (mode === 'over' && endText && endText.won);
   const ease = (rate) => 1 - Math.exp(-dt * rate);
   for (const [h, view] of W.houseViews) {
-    const look = buildingLook(h), lightKey = look.light;
+    // Once the vampires have taken the town, every home glows the vampires' red.
+    const look = buildingLook(h), lightKey = takeover ? LIGHT.player : look.light;
     // Decay: 0 for a clean home, 0.4 on the night it is cursed, rising to 1 at nightsToSpawnVampire, and 1 whenever a
     // vampire lives there. It eases over a few seconds, so a curse or a purge reads as a change, not a cut.
     const target = h.state !== 'cursed' ? 0 : h.vampire ? 1 : 0.4 + 0.6 * Math.min(1, h.cursedNights / TUNE.nightsToSpawnVampire);
     view.decay += (target - view.decay) * ease(0.8);
     view.uni.uDecay.value = view.decay;
+    // Its flowering bushes wilt with it: petals darken to a dead mauve-brown, leaves dull, and the bush sags.
+    if (Math.abs(view.decay - view.wilt) > 0.005) {
+      view.wilt = view.decay;
+      for (const b of view.bushes) {
+        const k = Math.min(1, view.decay * 2.2);
+        for (const { m, flower, base, wilt } of b.mats) { m.color.copy(base).lerp(flower ? WILTED.petal : WILTED.leaf, k * (flower ? 0.9 : 0.95)); wilt.value = k; }
+        b.obj.scale.y = b.scale * (1 - 0.22 * k);
+      }
+    }
     view.uni.uLit.value = Math.min(1, Math.max(view.glow.r, view.glow.g, view.glow.b));
     const T3 = A.houseTex;
     if (lightKey === LIGHT.home) { view.uni.uMapA.value = T3.yellow; view.uni.uMapB.value = T3.decayed; }
@@ -1050,13 +1113,15 @@ starPass.clear = false;
 composer.addPass(blurH); composer.addPass(blurV); composer.addPass(starPass); composer.addPass(new OutputPass());
 composer.setPixelRatio(renderScale); composer.setSize(innerWidth, innerHeight);
 const BRIGHTNESS = 1.75, BLUR = 3;
+let blur = 1;   // eases the tilt-shift down while a doorstep talk is open
 function drawFrame() {
   renderer.toneMappingExposure = baseExposure * BRIGHTNESS;
   projected.copy(camTarget).project(camera);   // the sharp band follows the camera subject's row on screen
   const focus = Math.min(0.8, Math.max(0.2, projected.y * 0.5 + 0.5));
   blurH.uniforms.uFocus.value = blurV.uniforms.uFocus.value = focus;
   blurH.uniforms.uDir.value.set(innerHeight / innerWidth, 0); blurV.uniforms.uDir.value.set(0, 1);
-  blurH.uniforms.uRadius.value = blurV.uniforms.uRadius.value = 0.007 * BLUR;
+  blur += ((talk ? 0.35 : 1) - blur) * 0.08;
+  blurH.uniforms.uRadius.value = blurV.uniforms.uRadius.value = 0.007 * BLUR * blur;
   renderer.autoClear = false; composer.render(); renderer.autoClear = true;
 }
 let slowAcc = 0, slowN = 0, calmWindows = 0;
@@ -1116,7 +1181,14 @@ function frame() {
   drawFrame();
   syncBars();
 }
-window.render3d = { frame, configure, get ready() { return ready; }, get world() { return W; }, get view() { return CAM; } };
+// Where a point of the map (simulation pixels, `up` metres above the ground) falls on the screen, as fractions of
+// the window. Used to place the numbered callouts on the help pictures.
+function project(px, py, up = 0) {
+  const p = toW(px, py);
+  projected.set(p.x, W.groundY(p.x, p.z) + up, p.z).project(camera);
+  return { x: projected.x * 0.5 + 0.5, y: -projected.y * 0.5 + 0.5 };
+}
+window.render3d = { frame, configure, project, get ready() { return ready; }, get world() { return W; }, get view() { return CAM; } };
 
 const loading = document.getElementById('loading'), loadFill = document.getElementById('loadFill'), loadText = document.getElementById('loadText');
 let filesIdle = false;
@@ -1127,6 +1199,8 @@ loadAssets().then(async () => {
   buildWorld();
   setTimeOfDay(hourOfDay());
   while (!filesIdle) await new Promise((r) => setTimeout(r, 50));
+  loadText.textContent = 'Loading the portraits';
+  await artReady;
   loadFill.style.width = '100%'; loadText.textContent = 'Preparing the scene';
   await new Promise((r) => setTimeout(r, 30));
   if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera);
