@@ -642,10 +642,11 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   const cryptLamp = new THREE.PointLight(0xff7a1a, 0, 9, 2); cryptLamp.position.set(cryptAt.x, heightAt(cryptAt.x, cryptZ) + 2.2, cryptZ + 0.36 * CRYPT_SCALE + 1.2); root.add(cryptLamp);
 
   // ---- tombstones where the generator put them ----
+  const stoneObjs = [];
   stonesAt.forEach((p, i) => {
     const k = Math.floor(hash2(i, 7) * 3), s = A.stones[k].clone();
     s.position.set(p.x, mulchTop(p.x, p.z) - 0.03, p.z); s.rotation.y = (hash2(i, 3) - 0.5) * 0.5; s.scale.multiplyScalar(0.9 + hash2(i, 5) * 0.25);
-    shadows(s); root.add(s);
+    shadows(s); root.add(s); stoneObjs.push(s);
   });
 
   // ---- trees and bushes: in the outskirts, and the odd bush in town away from every walkway ----
@@ -668,7 +669,20 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
 
   for (const c of characters.values()) c.group.removeFromParent();
   characters.clear();
-  W = { map: mapVersion, root, houseViews, groundY, churchUni, crossHalo, crossLamp, cryptModel, grille, cryptLamp, cryptKind: '', churchDecay: 0 };
+  // A walker whose own spot is on a bridge deck keeps its side offset between the railings too. Anyone else (the
+  // player, who the simulation already keeps off the railings, and walkers on the bank) is left where it is.
+  const DECK = BRH - 0.75;
+  function onDeck(p, base) {
+    for (const r of rl) {
+      const at = (q) => [(q.x - r.x) * r.dx + (q.z - r.z) * r.dz, (q.x - r.x) * r.dz - (q.z - r.z) * r.dx];
+      const [along, across] = at(p), [baseAlong, baseAcross] = at(base);
+      if (Math.abs(baseAlong) > bridgeReach(bridges[rl.indexOf(r)]) * S || Math.abs(baseAcross) > DECK || Math.abs(across) <= DECK) continue;
+      const k = Math.sign(across) * DECK - across;
+      p.x += k * r.dz; p.z -= k * r.dx;
+    }
+    return p;
+  }
+  W = { map: mapVersion, root, houseViews, groundY, onDeck, churchUnit, cryptUnit, stoneObjs, churchUni, crossHalo, crossLamp, cryptModel, grille, cryptLamp, cryptKind: '', churchDecay: 0 };
   snapCamera();
 }
 
@@ -729,7 +743,7 @@ function syncCharacters(dt) {
       if (h && !standingAtDoor(e)) { tx = -h.y * 9; ty = h.x * 9; }
     }
     c.ox += (tx - c.ox) * 0.2; c.oy += (ty - c.oy) * 0.2;
-    const p = toW(e.x + c.ox, e.y + c.oy), y = W.groundY(p.x, p.z);
+    const p = e === player ? toW(e.x, e.y) : W.onDeck(toW(e.x + c.ox, e.y + c.oy), toW(e.x, e.y)), y = W.groundY(p.x, p.z);
     if (c.px === null) { c.px = p.x; c.pz = p.z; }
     const dx = p.x - c.px, dz = p.z - c.pz, moved = Math.hypot(dx, dz);
     c.speed += ((dt > 0 ? moved / dt : 0) - c.speed) * 0.25;
@@ -972,7 +986,7 @@ function frame() {
   drawFrame();
   syncBars();
 }
-window.render3d = { frame, configure, get ready() { return ready; }, get world() { return W; } };
+window.render3d = { frame, configure, get ready() { return ready; }, get world() { return W; }, get view() { return CAM; } };
 
 const loading = document.getElementById('loading'), loadFill = document.getElementById('loadFill'), loadText = document.getElementById('loadText');
 let filesIdle = false;

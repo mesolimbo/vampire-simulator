@@ -59,10 +59,9 @@
   #death { position: fixed; z-index: 6; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(820px, calc(100vw - 32px)); padding: 22px 28px; text-align: center; display: flex; flex-direction: column; gap: 8px; border-color: #b3202a; }
   #death strong { font-size: clamp(20px, 2.4vw, 30px); color: #ff6a78; font-weight: 600; }
   #death span { font-size: clamp(15px, 1.5vw, 19px); color: #e7cca0; }
-  #shade { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(ellipse at center, rgba(14, 8, 16, .7), rgba(4, 3, 8, .92)); }
+  #shade { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(ellipse at center, rgba(16, 9, 18, .9), rgba(4, 3, 8, .97)); }
   .end { width: min(720px, 100%); padding: 32px 36px; text-align: center; }
   .end h2 { margin: 0; font-size: clamp(32px, 5vw, 56px); font-weight: 600; letter-spacing: .05em; color: #ff3b4e; }
-  .end.won h2 { color: #9fe0a8; }
   .end-text { margin: 12px 0 22px; font-size: clamp(16px, 1.8vw, 21px); color: #e7cca0; font-style: italic; }
   .end-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 0 0 26px; }
   .end-stats div { padding: 8px; border: 1px solid rgba(187, 145, 72, .5); border-radius: 6px; background: rgba(0, 0, 0, .25); }
@@ -73,7 +72,7 @@
   .end button:hover { border-color: #ffd86b; }
   .end button:focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
   .end kbd { font: inherit; font-size: 13px; padding: 1px 6px; border: 1px solid #bb9148; border-radius: 4px; color: #e7cca0; }
-  #menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(14, 8, 16, .72), rgba(4, 3, 8, .94)); color: #fff0bd; font-family: Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; }
+  #menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(16, 9, 18, .93), rgba(4, 3, 8, .985)); color: #fff0bd; font-family: Georgia, "Times New Roman", serif; text-shadow: 1px 2px 2px #000; }
   #menu section { width: min(760px, 100%); text-align: center; }
   #menu h1 { margin: 0; font-size: clamp(36px, 6vw, 68px); font-weight: 600; letter-spacing: .06em; color: #ff3b4e; }
   #menu h2 { margin: 0 0 18px; font-size: 32px; color: #ff3b4e; font-weight: 600; }
@@ -85,8 +84,19 @@
   #menu :focus-visible { outline: 2px solid #ffd86b; outline-offset: 3px; }
   #menu button.primary { background: linear-gradient(120deg, #6a1a1e, #240709 50%, #4a1216); }
   #menu kbd { font: inherit; font-size: 13px; padding: 1px 6px; border: 1px solid #bb9148; border-radius: 4px; color: #e7cca0; }
+  #menu #howTo { width: min(1100px, 100%); }
+  #howTo .help-page { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: center; text-align: left; min-height: 330px; }
+  #howTo .help-page img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 3px solid #8d5b2d; border-radius: 6px; box-shadow: inset 0 0 0 1px #ffdc86, 0 6px 18px #000; background: #000; }
+  #howTo .help-page h3 { margin: 0 0 10px; font-size: 24px; }
   #howTo ul { margin: 0; padding-left: 20px; text-align: left; color: #e7cca0; font-size: 16px; line-height: 1.5; }
-  #howTo li + li { margin-top: 3px; }
+  #howTo li + li { margin-top: 6px; }
+  #howTo .pager { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 22px; }
+  #howTo .pager button { padding: 6px 16px; font-size: 17px; }
+  #howTo .pager button:disabled { opacity: .35; cursor: default; }
+  #howTo .dots { display: flex; gap: 8px; }
+  #howTo .dots i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #bb9148; background: #120c0c; }
+  #howTo .dots i.on { background: #c4202e; }
+  @media (max-width: 700px) { #howTo .help-page { grid-template-columns: 1fr; } }
   #settingsView .row, #settingsView .check { display: flex; align-items: center; gap: 14px; margin: 10px 0; text-align: left; font-size: 17px; color: #e7cca0; }
   #settingsView .row > span:first-child { width: 120px; color: #fff0bd; }
   #settingsView input[type=range] { flex: 1; accent-color: #b3141c; }
@@ -153,39 +163,71 @@
   </section>
   <section id="howTo" hidden>
     <h2>How to play</h2>
-    <h3>Controls</h3>
-    <ul>
-      <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys move. Walk up to a door and press <kbd>W</kbd> or <kbd>E</kbd>.</li>
-      <li class="gfx">Drag with the left mouse button to turn and tilt the view; movement follows it. The wheel zooms and a double click resets the view.</li>
-      <li>Hold <kbd>Space</kbd> to fast-forward. <kbd>P</kbd> pauses, <kbd>R</kbd> restarts, <kbd>M</kbd> mutes and <kbd>Esc</kbd> opens the settings.</li>
-    </ul>
-    <h3>The night</h3>
-    <ul>
-      <li>The doorstep talk plays out by itself. Your first knock each night is 2 to 1 to get you in; the rest are even.</li>
-      <li>Being invited in is feeding. Any vampire that goes three nights without it starves.</li>
-      <li>A house you enter is cursed. After three nights it raises a vampire of its own.</li>
-      <li>One vampire to a house or crypt. Other vampires may take the crypt, or be home when you need a bed.</li>
-      <li>Nobody can cross the river except by its two bridges.</li>
-    </ul>
-    <h3>The day</h3>
-    <ul>
-      <li>Sunlight kills. By day, shelter in the crypt or inside a cursed house.</li>
-      <li>Each morning every hunter visits one random house and purges it if cursed. Long-cursed houses draw them more.</li>
-    </ul>
-    <h3>The hunters</h3>
-    <ul>
-      <li>The main hunter kills any vampire he finds, you included. No other hunter can kill you.</li>
-      <li>A house purged by the main hunter sends him a new hunter. Converts retire at the second house they visit.</li>
-      <li>A lesser vampire beats a recruit 2 to 1, and recruits die if they find you. Nobody reaches you in the crypt.</li>
-    </ul>
-    <h3>Winning</h3>
-    <ul>
-      <li>Curse every other house and the vampires storm the house of worship.</li>
-      <li>You only die for good with no cursed house left.</li>
-    </ul>
+    <div class="help-page">
+      <img src="assets/help/help_move.jpg" alt="The vampire walks the town at night." loading="lazy">
+      <div>
+        <h3>Rise and walk</h3>
+        <ul>
+          <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys move. Walk up to a door and press <kbd>W</kbd> or <kbd>E</kbd>.</li>
+          <li><span class="gfx">Drag with the left mouse button to turn and tilt the view; movement follows it. The wheel zooms and a double click resets the view.</span></li>
+          <li>Hold <kbd>Space</kbd> to fast-forward. <kbd>P</kbd> pauses, <kbd>R</kbd> restarts, <kbd>M</kbd> mutes, <kbd>H</kbd> shows this help and <kbd>Esc</kbd> opens the settings.</li>
+          <li>Nobody can cross the river except by its two bridges.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="help-page" hidden>
+      <img src="assets/help/help_knock.jpg" alt="The doorstep talk with a resident." loading="lazy">
+      <div>
+        <h3>Knock on doors</h3>
+        <ul>
+          <li>At night, knock on a lit house. The doorstep talk plays out by itself.</li>
+          <li>Your first knock each night is 2 to 1 to get you in; the rest are even. A house that turns you away stays wary until the next night.</li>
+          <li>Being invited in is feeding. Any vampire that goes three nights without it starves.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="help-page" hidden>
+      <img src="assets/help/help_curse.jpg" alt="Clean, cursed and occupied houses side by side." loading="lazy">
+      <div>
+        <h3>Curse the town</h3>
+        <ul>
+          <li>A house you enter is cursed: its door hangs open and it slowly decays. After three nights it raises a vampire of its own.</li>
+          <li>Windows glow red where you shelter, orange where another vampire lives, and yellow in a clean home.</li>
+          <li>One vampire to a house or crypt. Other vampires may take the crypt, or be home when you need a bed.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="help-page" hidden>
+      <img src="assets/help/help_day.jpg" alt="A hunter checks a house by day." loading="lazy">
+      <div>
+        <h3>Hide from the sun and the hunters</h3>
+        <ul>
+          <li>Sunlight kills. By day, shelter in the crypt or inside a cursed house.</li>
+          <li>Each morning every hunter visits one house and purges it if it is cursed. Long-cursed houses draw them more.</li>
+          <li>The main hunter kills any vampire he finds, you included. No other hunter can kill you, and nobody reaches you in the crypt.</li>
+          <li>A house purged by the main hunter sends him a new hunter. A lesser vampire beats a recruit 2 to 1.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="help-page" hidden>
+      <img src="assets/help/help_win.jpg" alt="The house of worship, with its cross dimming as the town falls." loading="lazy">
+      <div>
+        <h3>Take the town</h3>
+        <ul>
+          <li>The cross on the house of worship dims as more of the town is cursed.</li>
+          <li>Curse every other house and the vampires storm the house of worship.</li>
+          <li>If the sun or the main hunter gets you, you rise again in the longest-cursed house. You only die for good with no cursed house left.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="pager">
+      <button type="button" data-action="prev" aria-label="Previous page">&lsaquo; Prev</button>
+      <div class="dots" aria-hidden="true"></div>
+      <button type="button" data-action="next" aria-label="Next page">Next &rsaquo;</button>
+    </div>
     <div class="buttons">
       <button type="button" data-action="back">Back <kbd>Esc</kbd></button>
-      <button type="button" class="primary" data-action="start">Rise <kbd>Enter</kbd></button>
+      <button type="button" class="primary" data-action="start" data-title-only>Rise <kbd>Enter</kbd></button>
     </div>
   </section>
   <section id="settingsView" hidden>

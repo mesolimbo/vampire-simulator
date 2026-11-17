@@ -163,6 +163,11 @@ function layout(rnd) {
     const toRoad = Math.min(off(roads[0], x, y), off(roads[1], x, y)), toRiver = off(river, x, y);
     if (toRoad <= ROAD_HALF) road[i] = 1;
     if (toRiver < RIVER_HALF + 12 && toRoad > BRIDGE_HALF - 10) blocked[i] = WATER;
+    // The railings run on past the water onto both banks, to the bridge's ends.
+    for (const b of bridges) {
+      const along = Math.abs((x - b.x) * b.dx + (y - b.y) * b.dy), across = Math.abs((x - b.x) * b.dy - (y - b.y) * b.dx);
+      if (along < bridgeReach(b) + 8 && across > BRIDGE_HALF - 10 && across < BRIDGE_HALF + 20) blocked[i] = WATER;
+    }
     if (toRiver < RIVER_HALF + 0.75 * T || toRoad < ROAD_HALF + 0.75 * T) keepOut[i] = 1;
   }
 
@@ -198,6 +203,12 @@ function layout(rnd) {
     return { x: s.tx * T, y: s.ty * T, door: { x: (s.tx + 1.5) * T, y: (s.ty + 2.5) * T } };
   };
   Object.assign(crypt, building(cryptSpot));
+  // The house of worship stands taller and deeper than its tiles: it covers the row behind it and the tiles either
+  // side of its door, so walkers reach its door straight from the front and never cut through its walls.
+  for (let x = churchSpot.tx; x < churchSpot.tx + 3; x++) blocked[(churchSpot.ty - 1) * COLS + x] = BUILDING;
+  for (const x of [churchSpot.tx, churchSpot.tx + 2]) blocked[(churchSpot.ty + 2) * COLS + x] = BUILDING;
+  // A cursed home's door swings out over the tile left of its doorstep, so walkers stay off that tile.
+  for (const s of spots.slice(1)) if (s !== churchSpot) blocked[(s.ty + 2) * COLS + s.tx] = BUILDING;
   houses = spots.slice(1).map((s, i) => ({
     ...building(s),
     id: i + 1, name: TOWN_NAMES[i], at: TOWN_NAMES[i].replace(/^The /, 'the '),
@@ -246,15 +257,48 @@ function flash(text, ms = 2200) { flashMsg = { text, at: performance.now(), ms }
 
 // ---------- movement and pathfinding ----------
 
+// The player collides with the 3D models' walls at ground level, measured from the models: each box is
+// [left, right, top, bottom] in pixels from the building's top-left corner (the door point is at 48, 80).
+// Walkers use the tile grid instead (see layout), which keeps them a little further off.
+const WALLS = {
+  house: [15, 81, 11, 71],
+  crypt: [25, 71, 25, 71],
+  church: [-1, 97, -17, 91],   // its front steps, down to 97, can be climbed
+};
+// A cursed house's door hangs open outwards, to the left of the doorway.
+const OPEN_DOOR = [34, 42, 68, 86];
+const TOMB_BOX = [-6.5, 6.5, -12, 0];   // round a tombstone's point
+const PLAYER_R = 6;
+const doorOpen = (h) => h.state === 'cursed' && !vampireInside(h);
+
+// How far the bridge (deck, railings and the abutments at both ends) runs either side of the river's centre
+// line along its road, in pixels. The 3D view builds it from 3 m spans plus a 3 m abutment at each end.
+function bridgeReach(b) {
+  const S = 3 / 32, spans = Math.ceil((2 * b.half * S - 6) / 3);
+  return (spans * 3 + 6) / 2 / S;
+}
+// On a bridge, walkers keep to the deck between the railings.
+function onRailing(x, y, r) {
+  return bridges.some((b) => {
+    const along = Math.abs((x - b.x) * b.dx + (y - b.y) * b.dy), across = Math.abs((x - b.x) * b.dy - (y - b.y) * b.dx);
+    return along < bridgeReach(b) + r && across > BRIDGE_HALF - 9 && across < BRIDGE_HALF + r + 3;
+  });
+}
+
 function blockedAt(px, py) {
   const tx = Math.floor(px / T), ty = Math.floor(py / T);
-  return tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty * COLS + tx] === BUILDING;
+  return tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS;
 }
+const inBox = (x, y, r, ox, oy, [x0, x1, y0, y1]) => x + r > ox + x0 && x - r < ox + x1 && y + r > oy + y0 && y - r < oy + y1;
 function canStand(x, y) {
-  const r = 9;
-  return !blockedAt(x - r, y - r) && !blockedAt(x + r, y - r) && !blockedAt(x - r, y + r) && !blockedAt(x + r, y + r)
-    && !inWater(x, y)
-    && !tombs.some((t) => Math.abs(x - t.x) < r + 7 && y + r > t.y - 10 && y - r < t.y + 2);
+  const r = PLAYER_R;
+  if (blockedAt(x - r, y - r) || blockedAt(x + r, y + r) || inWater(x, y) || onRailing(x, y, r)) return false;
+  if (inBox(x, y, r, crypt.x, crypt.y, WALLS.crypt)) return false;
+  for (const h of houses) {
+    if (inBox(x, y, r, h.x, h.y, h.isHQ ? WALLS.church : WALLS.house)) return false;
+    if (!h.isHQ && doorOpen(h) && inBox(x, y, r, h.x, h.y, OPEN_DOOR)) return false;
+  }
+  return !tombs.some((t) => inBox(x, y, r, t.x, t.y, TOMB_BOX));
 }
 
 const tileOf = (p) => Math.floor(p.y / T) * COLS + Math.floor(p.x / T);
