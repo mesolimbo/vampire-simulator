@@ -363,7 +363,11 @@ diffuseColor.rgb *= gC;`);
 // ---------- the town, built once per map ----------
 
 let W = null;   // the current map's scene and lookups
-const LIGHT3D = { [LIGHT.player]: 0xff2a1e, [LIGHT.vampire]: 0xff7a1a, [LIGHT.home]: 0xffc24a, [LIGHT.worship]: 0x9fc4e8 };
+// Window light by occupant, and how bright each glows: a clean home's yellow is the quietest, so a vampire's deep
+// orange and the player's red stand out from it.
+const LIGHT3D = { [LIGHT.player]: 0xff0000, [LIGHT.vampire]: 0xff3800, [LIGHT.home]: 0xffdca0, [LIGHT.worship]: 0xdce6f2 };
+const LIGHT_GAIN = { [LIGHT.player]: 0.35, [LIGHT.vampire]: 0.75, [LIGHT.home]: 0.6, [LIGHT.worship]: 1 };
+const ORANGE = 0xff3800, RED = 0xff0000;
 const HOUSE_SCALE = 7, CRYPT_SCALE = 7, CHAR_SCALE = 1.3, MULCH = 0.25, HILL = 2, YARD_RISE = 1.3, MOUND = 1.25, CROWN = 0.45;
 
 function buildWorld() {
@@ -566,17 +570,21 @@ function buildWorld() {
   for (const { h, x, z } of homes) {
     const unit = new THREE.Group();
     const model = ownMaterials(A.house.clone());
-    const uni = { uMapA: { value: A.houseTex.clean }, uMapB: { value: A.houseTex.decayed }, uDecay: { value: 0 } };
+    const uni = { uMapA: { value: A.houseTex.clean }, uMapB: { value: A.houseTex.decayed }, uDecay: { value: 0 }, uLit: { value: 0 } };
     eachMaterial(model, (m) => {
       m.map = A.houseTex.clean; m.emissiveMap = A.houseMask; m.emissive = new THREE.Color(0); m.emissiveIntensity = 1;
       // The colour is the clean texture set blended into the decayed one by the decay value.
       m.onBeforeCompile = (sh) => {
         Object.assign(sh.uniforms, uni);
         sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform sampler2D uMapA, uMapB; uniform float uDecay;`).replace('#include <map_fragment>', `
+uniform sampler2D uMapA, uMapB; uniform float uDecay, uLit;`).replace('#include <map_fragment>', `
 #ifdef USE_MAP
 vec4 sampledDiffuseColor = mix(texture2D(uMapA, vMapUv), texture2D(uMapB, vMapUv), uDecay);
 diffuseColor *= sampledDiffuseColor;
+#ifdef USE_EMISSIVEMAP
+// A lit window shows its light's colour, not the painted glass under it.
+diffuseColor.rgb *= 1.0 - uLit * texture2D(emissiveMap, vEmissiveMapUv).r;
+#endif
 #endif`);
       };
       m.needsUpdate = true;
@@ -639,7 +647,7 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   const cryptZ = cryptAt.z + 1.5;
   cryptUnit.scale.setScalar(CRYPT_SCALE); cryptUnit.position.set(cryptAt.x, mulchTop(cryptAt.x, cryptZ) + 0.498 * CRYPT_SCALE - 0.08, cryptZ); shadows(cryptUnit); root.add(cryptUnit);
   grille.castShadow = false;
-  const cryptLamp = new THREE.PointLight(0xff7a1a, 0, 9, 2); cryptLamp.position.set(cryptAt.x, heightAt(cryptAt.x, cryptZ) + 2.2, cryptZ + 0.36 * CRYPT_SCALE + 1.2); root.add(cryptLamp);
+  const cryptLamp = new THREE.PointLight(ORANGE, 0, 9, 2); cryptLamp.position.set(cryptAt.x, heightAt(cryptAt.x, cryptZ) + 2.2, cryptZ + 0.36 * CRYPT_SCALE + 1.2); root.add(cryptLamp);
 
   // ---- tombstones where the generator put them ----
   const stoneObjs = [];
@@ -793,7 +801,7 @@ function syncBars() {
 
 // ---------- buildings: lights, decay and doors ----------
 
-const CROSS = { red: new THREE.Color(1, 0, 0.03), white: new THREE.Color(1, 1, 1), redStone: new THREE.Color(0.5, 0, 0.01), redHalo: new THREE.Color(1, 0, 0.04), redLamp: new THREE.Color(1, 0.02, 0.04), worship: new THREE.Color(0x9fc4e8) };
+const CROSS = { red: new THREE.Color(1, 0, 0.03), white: new THREE.Color(1, 1, 1), redStone: new THREE.Color(0.5, 0, 0.01), redHalo: new THREE.Color(1, 0, 0.04), redLamp: new THREE.Color(1, 0.02, 0.04), worship: new THREE.Color(0xdce6f2) };
 const tmpColor = new THREE.Color();
 let nightK = 0;   // 0 in full daylight, 1 in full night
 
@@ -806,12 +814,13 @@ function syncBuildings(dt) {
     const target = h.state !== 'cursed' ? 0 : h.vampire ? 1 : 0.4 + 0.6 * Math.min(1, h.cursedNights / TUNE.nightsToSpawnVampire);
     view.decay += (target - view.decay) * ease(0.8);
     view.uni.uDecay.value = view.decay;
+    view.uni.uLit.value = Math.min(1, Math.max(view.glow.r, view.glow.g, view.glow.b));
     const T3 = A.houseTex;
     if (lightKey === LIGHT.home) { view.uni.uMapA.value = T3.yellow; view.uni.uMapB.value = T3.decayed; }
     else if (lightKey === LIGHT.player) { view.uni.uMapA.value = T3.red; view.uni.uMapB.value = T3.decayedRed; }
     else if (lightKey === LIGHT.vampire) { view.uni.uMapA.value = T3.clean; view.uni.uMapB.value = T3.decayedOrange; }
     else { view.uni.uMapA.value = T3.clean; view.uni.uMapB.value = T3.decayed; }
-    tmpColor.set(lightKey ? LIGHT3D[lightKey] : 0x000000);
+    tmpColor.set(lightKey ? LIGHT3D[lightKey] : 0x000000).multiplyScalar(lightKey ? LIGHT_GAIN[lightKey] : 0);
     view.glow.lerp(tmpColor, ease(4));
     for (const m of view.mats) { m.emissive.copy(view.glow); m.emissiveIntensity = 0.9 + 1.0 * nightK; }
     const open = look.shut ? 0 : -1.9;
@@ -829,14 +838,14 @@ function syncBuildings(dt) {
   W.crossLamp.color.copy(red ? CROSS.redLamp : col); W.crossLamp.intensity = (red ? 1 : 8 * live) * (1.5 + 5 * nightK);
   // House of worship windows: pale blue by day, off at night; a creeping red for the final swarm.
   const winLit = buildingLook(church()).light;
-  tmpColor.copy(red ? CROSS.red : CROSS.worship).multiplyScalar(red ? 0.34 : winLit ? 0.55 : 0);
+  tmpColor.copy(red ? CROSS.red : CROSS.worship).multiplyScalar(red ? 0.34 : winLit ? 0.42 : 0);
   cu.uChurchWin.value.lerp(tmpColor, ease(3));
 
   // The crypt: its walls and door grille show who sleeps there.
   const kind = playerIn(crypt) ? 'red' : vampireInside(crypt) ? 'orange' : 'empty';
   if (kind !== W.cryptKind) { W.cryptKind = kind; eachMaterial(W.cryptModel, (m) => { m.map = A.cryptTex[kind] || A.cryptBase; }); }
   W.grille.visible = kind !== 'empty';
-  const glow = kind === 'red' ? 0xff2218 : 0xff7a1a;
+  const glow = kind === 'red' ? RED : ORANGE;
   if (W.grille.visible) { W.grille.material.color.set(glow).multiplyScalar(1.4 + 0.8 * nightK); W.cryptLamp.color.set(glow); }
   W.cryptLamp.intensity = kind === 'empty' ? 0 : 2.5 + 4.5 * nightK;
 }

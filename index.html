@@ -159,6 +159,7 @@
       <button type="button" class="primary" data-action="start">Rise <kbd>Enter</kbd></button>
       <button type="button" data-view="howTo">How to play <kbd>H</kbd></button>
       <button type="button" data-view="settingsView">Settings <kbd>O</kbd></button>
+      <button type="button" data-action="fullscreen"><span class="fs-label">Full screen</span> <kbd>F</kbd></button>
     </div>
   </section>
   <section id="howTo" hidden>
@@ -170,7 +171,7 @@
         <ul>
           <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys move. Walk up to a door and press <kbd>W</kbd> or <kbd>E</kbd>.</li>
           <li><span class="gfx">Drag with the left mouse button to turn and tilt the view; movement follows it. The wheel zooms and a double click resets the view.</span></li>
-          <li>Hold <kbd>Space</kbd> to fast-forward. <kbd>P</kbd> pauses, <kbd>R</kbd> restarts, <kbd>M</kbd> mutes, <kbd>H</kbd> shows this help and <kbd>Esc</kbd> opens the settings.</li>
+          <li>Hold <kbd>Space</kbd> to fast-forward. <kbd>P</kbd> pauses, <kbd>R</kbd> restarts, <kbd>M</kbd> mutes, <kbd>F</kbd> toggles full screen, <kbd>H</kbd> shows this help and <kbd>Esc</kbd> opens the settings.</li>
           <li>Nobody can cross the river except by its two bridges.</li>
         </ul>
       </div>
@@ -245,7 +246,8 @@
       <label class="check"><input type="checkbox" id="setAa"> Smooth edges (antialiasing)</label>
     </div>
     <div class="buttons">
-      <button type="button" class="gfx" data-action="fastest">Fastest graphics</button>
+      <button type="button" data-action="fullscreen"><span class="fs-label">Full screen</span> <kbd>F</kbd></button>
+      <button type="button" class="gfx" data-action="graphics">Fastest graphics</button>
       <button type="button" class="primary" data-action="back">Back <kbd>Esc</kbd></button>
     </div>
   </section>

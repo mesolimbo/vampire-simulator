@@ -7,6 +7,7 @@ addEventListener('keydown', (ev) => {
   if (ev.repeat) return;
   audio.init();
   if (ev.code === 'KeyM') return menu.toggleMute();
+  if (ev.code === 'KeyF') return menu.toggleFullscreen();
   if (menu.key(ev)) return;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) ev.preventDefault();
   keys.add(ev.code);

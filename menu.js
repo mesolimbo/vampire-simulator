@@ -5,6 +5,8 @@
 const SETTINGS_KEY = 'vampire-settings';
 const DEFAULT_SETTINGS = { music: 20, sfx: 90, muted: false, shadows: 'high', resolution: 'auto', blur: true, aa: true };
 const FASTEST_GRAPHICS = { shadows: 'off', resolution: '0.5', blur: false, aa: false };
+const BEST_GRAPHICS = { shadows: 'high', resolution: 'auto', blur: true, aa: true };
+const isFastest = () => Object.entries(FASTEST_GRAPHICS).every(([k, v]) => settings[k] === v);
 const settings = (() => {
   try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (e) { return { ...DEFAULT_SETTINGS }; }
 })();
@@ -20,6 +22,8 @@ const menu = (() => {
     for (const [k, c] of Object.entries(controls)) { if (c.type === 'checkbox') c.checked = settings[k]; else c.value = settings[k]; }
     byId('setMusicVal').textContent = `${settings.music}%`;
     byId('setSfxVal').textContent = `${settings.sfx}%`;
+    // One button swaps between the fastest graphics and the best.
+    el.querySelector('[data-action=graphics]').textContent = isFastest() ? 'Best graphics' : 'Fastest graphics';
     audio.configure(settings);
     if (window.render3d) window.render3d.configure(settings);
   }
@@ -71,7 +75,8 @@ const menu = (() => {
     else if (b.dataset.action === 'back') back();
     else if (b.dataset.action === 'prev') turnPage(-1);
     else if (b.dataset.action === 'next') turnPage(1);
-    else if (b.dataset.action === 'fastest') { Object.assign(settings, FASTEST_GRAPHICS); apply(); }
+    else if (b.dataset.action === 'fullscreen') toggleFullscreen();
+    else if (b.dataset.action === 'graphics') { Object.assign(settings, isFastest() ? BEST_GRAPHICS : FASTEST_GRAPHICS); apply(); }
   });
 
   // Keys while a menu is open. Returns true when the key belongs to the menu, so the game ignores it.
@@ -95,6 +100,15 @@ const menu = (() => {
     return true;
   }
 
+  // Full screen, from the title screen, the settings, or F anywhere.
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+  }
+  const syncFullscreen = () => el.querySelectorAll('.fs-label').forEach((l) => { l.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; });
+  document.addEventListener('fullscreenchange', syncFullscreen);
+  if (!document.fullscreenEnabled) el.querySelectorAll('[data-action=fullscreen]').forEach((b) => { b.hidden = true; });
+
   function toggleMute() { settings.muted = !settings.muted; apply(); }
 
   // Each frame: menus show on the title screen or when opened in game; the shade dims the 3D view's end screen.
@@ -104,5 +118,5 @@ const menu = (() => {
   }
 
   apply();
-  return { key, sync, toggleMute };
+  return { key, sync, toggleMute, toggleFullscreen };
 })();
