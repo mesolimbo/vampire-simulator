@@ -13,7 +13,7 @@
       for (const [id, value] of Object.entries({ hudClean: clean, hudCursed: cursed, hudVampires: vampires, hudHunters: hunters })) put(id, value);
       hunger = Math.max(0, Math.min(3, Math.round(hunger)));
       const blood = 3 - hunger;
-      document.querySelector('.hud-pips').setAttribute('aria-label', `Blood: ${blood} of 3${blood === 3 ? ', fully fed' : blood === 0 ? ', starving' : ''}`);
+      document.querySelector('.hud-pips').setAttribute('aria-label', `Health: ${blood} of 3${blood === 3 ? ', fully fed' : blood === 0 ? ', starving' : ''}`);
       document.querySelectorAll('.hud-pips i').forEach((pip, i) => pip.classList.toggle('full', i < blood));
     },
     // The game passes its own night number, and how close to dawn the countdown should turn red; the preview counts

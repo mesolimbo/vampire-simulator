@@ -53,7 +53,8 @@ function updateHud() {
   const count = (s) => houses.filter((h) => !h.isHQ && h.state === s).length;
   hud.setCounters({
     clean: count('clean'), cursed: count('cursed'),
-    vampires: actors.filter((e) => e.kind === 'vamp').length,
+    // The player counts too, unless the game has ended in dust.
+    vampires: actors.filter((e) => e.kind === 'vamp' && e.alive).length + (mode === 'over' && !endText.won ? 0 : 1),
     hunters: actors.filter((e) => e.kind === 'hunter').length,
     hunger: player.fed ? 0 : player.hunger,
   });

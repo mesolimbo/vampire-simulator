@@ -147,8 +147,9 @@ function layout(rnd) {
     const sin = r.dx * river.dy - r.dy * river.dx;   // of the angle between road and river
     if (Math.abs(sin) < 0.7) return false;           // a shallow crossing would need a very long bridge
     const s = -side(river, r.x, r.y) / sin;
-    // Long enough to span all the water under the road, plus a little of each bank.
-    const half = (RIVER_HALF + BRIDGE_HALF * Math.sqrt(1 - sin * sin)) / Math.abs(sin) + 10;
+    // Long enough to span all the water under the road, then run about 3 m onto each bank, past the rocky edge, so both
+    // corners of each end stand on grass however steeply the road meets the river.
+    const half = (RIVER_HALF + BRIDGE_HALF * Math.sqrt(1 - sin * sin)) / Math.abs(sin) + 34;
     const b = { x: r.x + r.dx * s, y: r.y + r.dy * s, dx: r.dx, dy: r.dy, half };
     if (b.x < 4 * T || b.x > WORLD_W - 4 * T || b.y < 4 * T || b.y > WORLD_H - 4 * T) return false;
     bridges.push(b);
