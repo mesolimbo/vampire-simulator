@@ -43,6 +43,7 @@ const T = 32, COLS = 52, ROWS = 28, HUD = 48, FOOT = 48;   // the map is wider a
 const WORLD_W = COLS * T, WORLD_H = ROWS * T;
 const HOUSE_W = 3 * T, HOUSE_H = 2 * T, HOMES = 16;
 const RIVER_HALF = 74, ROAD_HALF = 36, BRIDGE_HALF = 40;   // half-widths in pixels
+const YARD_RIVER_GAP = 160;   // pixels (15 m) of bank kept between the river and the graveyard
 const BUILDING = 1, WATER = 2, TOMB = 3;   // tile blockers. Only buildings stop the player by tile: water and tombs use exact shapes
 
 // Each entry is [resident's call, six plausible replies]. A knock uses one call and one of its replies at
@@ -186,6 +187,8 @@ function layout(rnd) {
   const yardClear = (tx, ty) => {
     for (let y = ty - 3; y <= ty + 6; y++) for (let x = tx - 4; x <= tx + 6; x++) {
       if (x < 0 || y < 0 || x >= COLS || y >= ROWS || keepOut[y * COLS + x]) return false;
+      // The banks slope down to the water over about 18 m (YARD_RIVER_GAP); the graveyard's level bed stays above that.
+      if (off(river, (x + 0.5) * T, (y + 0.5) * T) < RIVER_HALF + YARD_RIVER_GAP) return false;
     }
     return true;
   };

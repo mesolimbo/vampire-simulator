@@ -490,7 +490,7 @@ function buildWorld() {
   };
   const pads = [...homes.map(({ x, z }) => ({ x, z: z + 1, r: 6.5, b: 6 })), { x: churchAt.x, z: churchAt.z, r: 7, b: 6 }, { x: yard.x, z: yard.z, r: Math.max(yard.w, yard.d) / 2 + 2, b: 9 }];
   pads.forEach((p) => { p.h = base(p.x, p.z); });
-  function heightAt(x, z) {
+  function rawHeight(x, z) {
     const bank = riverDist(x, z);
     if (bank < RH + 0.6) return -0.45 * (1 - sstep(RH - 1.0, RH + 0.6, bank)) + 0.16 * (vnoise(x * 0.8, z * 0.8) - 0.5) * (1 - sstep(RH + 0.2, RH + 0.6, bank));
     let h = base(x, z);
@@ -499,6 +499,35 @@ function buildWorld() {
     if (rw > 0) h += (roadTop(x, z) + crown(x, z) - 0.08 * edge(x, z) * sstep(RH + 0.6, RH + 3, bank) - h) * rw;
     return h;
   }
+
+  // In front of each door the ground keeps level with the home's floor for 5 m, then may rise only gently, so no hill,
+  // embankment, graveyard rise or neighbour's patch climbs against the doorway. The trim fades out at the strip's
+  // sides and far end, and near any other home so it never undercuts one.
+  // Roads are never cut: where one runs in front of a door higher than the home's floor, the home's level patch is
+  // raised to meet it, its edge eased out further.
+  pads.slice(0, homes.length).forEach((p) => {
+    let top = -Infinity;
+    for (let d = 2.5; d <= 11; d += 0.75) for (const dx of [-2.6, 0, 2.6]) {
+      const x = p.x + dx, z = p.z + d;
+      if (roadDist(x, z) < RDH + 1.5) top = Math.max(top, roadTop(x, z) + crown(x, z));
+    }
+    if (top > p.h) { p.b += (top - p.h) * 3; p.h = top + 0.02; }
+  });
+  const doors = homes.map(({ x, z }) => ({ x, z: z + 1 }));
+  doors.forEach((d) => { d.h = rawHeight(d.x, d.z); });
+  function doorCap(x, z, h) {
+    for (const d of doors) {
+      const dz = z - d.z, dx = Math.abs(x - d.x);
+      if (dz < 1.5 || dz > 11 || dx > 4.6) continue;
+      const allow = d.h + 0.3 * Math.max(0, dz - 5);
+      if (h <= allow) continue;
+      let w = (1 - sstep(2.8, 4.6, dx)) * (1 - sstep(8.5, 11, dz)) * sstep(1.5, 2.5, dz) * sstep(RDH + 0.5, RDH + 4, roadDist(x, z));
+      for (const o of doors) if (o !== d) w *= sstep(5.5, 8, Math.hypot(x - o.x, z - o.z));
+      h += (allow - h) * w;
+    }
+    return h;
+  }
+  const heightAt = (x, z) => doorCap(x, z, rawHeight(x, z));
 
   // ---- ground: each bank's strip, built in the river's frame with vertices packed closer near the water ----
   const TILE = 2.6;
@@ -799,7 +828,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.
     }
     return p;
   }
-  W = { map: mapVersion, root, houseViews, groundY, onDeck, churchUnit, cryptUnit, stoneObjs, churchUni, crossHalo, crossLamp, cryptModel, grille, cryptLamp, cryptKind: '', churchDecay: 0 };
+  W = { map: mapVersion, root, houseViews, groundY, heightAt, base, onDeck, churchUnit, cryptUnit, stoneObjs, churchUni, crossHalo, crossLamp, cryptModel, grille, cryptLamp, cryptKind: '', churchDecay: 0 };
   snapCamera();
 }
 

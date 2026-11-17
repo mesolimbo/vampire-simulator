@@ -158,7 +158,7 @@
 
 /* ---------- the doorstep talk ---------- */
 
-#talk { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(1240px, calc(100vw - 32px)); display: grid; grid-template-columns: minmax(110px, 270px) 1fr minmax(110px, 270px); gap: 24px; padding: 24px; transition: border-color .3s, background-color .3s; }
+#talk { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(920px, 72vw, calc(100vw - 32px)); display: grid; grid-template-columns: minmax(100px, 230px) 1fr minmax(100px, 230px); gap: 14px; padding: 24px; transition: border-color .3s, background-color .3s; }
 #talk::after { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; box-shadow: 0 0 0 200vmax rgba(6, 4, 14, .42); pointer-events: none; }
 #talk.feeding { border-color: #c4202e; background-color: #3a0a10; }
 /* Portraits stand in carved arched niches: thick brass moulding over a dark recess, on a sill. */
@@ -172,15 +172,15 @@
 @keyframes pop { from { opacity: .3; transform: scale(1.04); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .niche img.pop { animation: none; } }
 #talk .talk-body { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 12px 10px; min-width: 0; background: none; box-shadow: none; }
-.talk-body h2 { margin: 0; font: 700 clamp(24px, 2.45vw, 42px)/1.15 var(--serif); color: var(--cream); }
+.talk-body h2 { margin: 0; font: 700 clamp(24px, 2.45vw, 34px)/1.15 var(--serif); color: var(--cream); }
 .talk-body .divider { width: 100%; margin: 2px 0 4px; }
-.talk-body p { margin: 0; font-size: clamp(16px, 1.65vw, 28px); line-height: 1.35; }
+.talk-body p { margin: 0; font-size: clamp(16px, 1.65vw, 22px); line-height: 1.35; }
 .talk-body .knock { color: var(--muted); font-style: italic; }
 .talk-body .question { font-weight: 700; color: var(--cream); }
 .talk-body .answer { color: #ffc2c8; }
 .outcome-band { display: flex; align-items: center; gap: 16px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--brass-dim); }
 .outcome-band img { width: 64px; height: 64px; flex: none; }
-.outcome-band p { font-weight: 700; font-size: clamp(19px, 2vw, 34px) !important; }
+.outcome-band p { font-weight: 700; font-size: clamp(19px, 2vw, 26px) !important; }
 .outcome-band.won p { color: #9fe0a8; }
 .outcome-band.lost p { color: #ff5f6d; }
 .talk-body .feed { display: flex; align-items: center; gap: 14px; font-size: clamp(17px, 1.8vw, 30px); font-weight: 700; }
