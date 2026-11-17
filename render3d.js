@@ -738,7 +738,8 @@ function syncCharacters(dt) {
   const seen = new Set();
   const people = mode === 'title' ? [] : [player, ...actors];
   for (const e of people) {
-    const hidden = e === player ? player.state === 'inside' : !e.alive || e.inside;
+    const dust = mode === 'over' && !endText.won;   // the game ended with the player destroyed
+    const hidden = e === player ? player.state === 'inside' || dust : !e.alive || e.inside;
     if (hidden) continue;
     seen.add(e);
     let c = characters.get(e);
@@ -766,9 +767,125 @@ function syncCharacters(dt) {
     c.group.rotation.y = c.yaw;
     c.group.position.set(p.x, y, p.z);
     c.mixer.update(paused ? 0 : dt);
+    c.burn = e.sun > 0 ? Math.min(1, e.sun / TUNE.sunGraceSeconds) : 0;
+    if (c.burn > 0 && !paused) fire.burn(c.group.position, c.burn, dt);
   }
-  for (const [e, c] of characters) if (!seen.has(e)) { c.group.removeFromParent(); characters.delete(e); }
+  for (const [e, c] of characters) {
+    if (seen.has(e)) continue;
+    // Gone while ablaze: the sun has finished it, so it goes up in a last burst of flame and ash.
+    const sunDeath = e === player ? (deathNotice && performance.now() - deathNotice.at < 1000) || (mode === 'over' && !endText.won) : !e.alive;
+    if (c.burn > 0.4 && sunDeath) fire.burst(c.group.position);
+    c.group.removeFromParent(); characters.delete(e);
+  }
+  fire.light([...characters.values()].filter((c) => c.burn > 0).sort((a, b) => b.burn - a.burn));
 }
+
+// ---------- sunburn ----------
+// A vampire caught in daylight smoulders, then blazes as its time runs out (sun / sunGraceSeconds). Flames and
+// embers glow additively; smoke is drawn over them darkly. Two lights, made at start-up so no material ever has to
+// recompile for them, flicker on the worst burning.
+const fire = (() => {
+  const sprite = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  const scale = { value: 1 };
+  function pool(max, blending, flame = false) {
+    const pos = new Float32Array(max * 3), col = new Float32Array(max * 4), size = new Float32Array(max);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('tint', new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('size', new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage));
+    geo.setDrawRange(0, 0);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: sprite }, uScale: scale }, transparent: true, depthWrite: false, blending,
+      vertexShader: `
+        attribute vec4 tint; attribute float size; uniform float uScale; varying vec4 vTint;
+        void main() { vTint = tint; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `
+        uniform sampler2D uTex; varying vec4 vTint;
+        void main() {
+          ${flame
+            // a tongue of flame: narrow, taller than wide, pointed at the top (gl_PointCoord.y runs downwards)
+            ? 'vec2 q = gl_PointCoord - 0.5; q.x *= 2.4 - 1.6 * (0.5 - q.y); q.y *= 1.15; float a = smoothstep(0.5, 0.1, length(q));'
+            : 'float a = texture2D(uTex, gl_PointCoord).a;'}
+          gl_FragColor = vec4(vTint.rgb, vTint.a * a);
+        }`,
+    });
+    const points = new THREE.Points(geo, mat);
+    points.frustumCulled = false;
+    scene.add(points);
+    return { max, pos, col, size, geo, list: [] };
+  }
+  // Embers glow additively; flames are drawn over the scene normally, so daylight does not wash them out to white.
+  const glow = pool(300, THREE.AdditiveBlending), flames = pool(700, THREE.NormalBlending, true), smoke = pool(300, THREE.NormalBlending);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  function spawn(p, at, o) {
+    if (p.list.length >= p.max) return;
+    const a = Math.random() * Math.PI * 2, r0 = o.r0 || 0, r = Math.sqrt(r0 * r0 + Math.random() * ((o.r || 0) ** 2 - r0 * r0));
+    p.list.push({ x: at.x + Math.cos(a) * r, y: at.y + rand(o.y0, o.y1), z: at.z + Math.sin(a) * r, vx: Math.cos(a) * (o.out || 0) + rand(-0.15, 0.15), vy: rand(o.up0, o.up1), vz: Math.sin(a) * (o.out || 0) + rand(-0.15, 0.15), age: 0, life: rand(o.life0, o.life1), s0: o.s0, s1: o.s1, kind: o.kind });
+  }
+  // A fractional emission count becomes a whole one on average.
+  const count = (rate, dt) => { const n = rate * dt; return Math.floor(n) + (Math.random() < n % 1 ? 1 : 0); };
+  // Flames start in a ring round the body, not inside it, where the model would hide them.
+  const FLAME = { kind: 'flame', r0: 0.3, r: 0.55, y0: 0.05, y1: 1.5, up0: 1.2, up1: 2.4, life0: 0.4, life1: 0.75, s0: 0.75, s1: 0.2 };
+  const EMBER = { kind: 'ember', r: 0.35, y0: 0.4, y1: 1.8, up0: 1.8, up1: 3.2, life0: 0.8, life1: 1.5, s0: 0.12, s1: 0.04 };
+  const SMOKE = { kind: 'smoke', r: 0.25, y0: 1.2, y1: 2.0, up0: 0.7, up1: 1.2, life0: 1.4, life1: 2.2, s0: 0.6, s1: 2.0 };
+  function burn(at, k, dt) {
+    for (let i = count(25 + 140 * k, dt); i--;) spawn(flames, at, { ...FLAME, s0: FLAME.s0 * (0.6 + 0.6 * k) });
+    for (let i = count(3 + 22 * k, dt); i--;) spawn(glow, at, EMBER);
+    for (let i = count(4 + 26 * k, dt); i--;) spawn(smoke, at, SMOKE);
+  }
+  function burst(at) {
+    for (let i = 0; i < 110; i++) spawn(flames, at, { ...FLAME, r: 0.5, out: 1.6, up0: 1.5, up1: 3.5, s0: 1.0, life1: 1.0 });
+    for (let i = 0; i < 50; i++) spawn(glow, at, { ...EMBER, out: 2.5, up0: 2, up1: 5 });
+    for (let i = 0; i < 45; i++) spawn(smoke, at, { ...SMOKE, r: 0.6, y0: 0.3, y1: 1.6, out: 0.8, s1: 2.6, life1: 2.8 });
+  }
+  // Flame runs white-yellow, orange, then dull red as it fades; smoke thickens, then thins away.
+  function colour(q, t) {
+    if (q.kind === 'smoke') return [0.07, 0.06, 0.06, 0.5 * Math.sin(Math.PI * Math.min(1, t * 1.2))];
+    if (q.kind === 'ember') return [2.2, 0.75, 0.12, 1 - t];
+    const hot = [1.0, 0.62, 0.14], mid = [0.95, 0.28, 0.02], cool = [0.5, 0.05, 0.01];
+    const m = (a, b, u) => a.map((v, i) => v + (b[i] - v) * u);
+    const c = t < 0.3 ? m(hot, mid, t / 0.3) : m(mid, cool, (t - 0.3) / 0.7);
+    return [...c, 0.9 * Math.pow(1 - t, 1.2)];
+  }
+  function step(p, dt) {
+    let n = 0;
+    p.list = p.list.filter((q) => (q.age += dt) < q.life);
+    for (const q of p.list) {
+      q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
+      q.vx *= 1 - dt * 1.5; q.vz *= 1 - dt * 1.5;
+      if (q.kind === 'ember') { q.vx += rand(-3, 3) * dt; q.vz += rand(-3, 3) * dt; }
+      const t = q.age / q.life;
+      p.pos.set([q.x, q.y, q.z], n * 3);
+      p.col.set(colour(q, t), n * 4);
+      p.size[n] = q.s0 + (q.s1 - q.s0) * t;
+      n++;
+    }
+    p.geo.setDrawRange(0, n);
+    for (const a of ['position', 'tint', 'size']) p.geo.attributes[a].needsUpdate = true;
+  }
+  const lights = [0, 1].map(() => { const l = new THREE.PointLight(0xff6a1a, 0, 9, 2); scene.add(l); return l; });
+  function light(burning) {
+    lights.forEach((l, i) => {
+      const c = burning[i];
+      if (!c) { l.intensity = 0; return; }
+      l.position.copy(c.group.position).y += 1.3;
+      l.intensity = (4 + 14 * c.burn) * (0.75 + 0.25 * Math.sin(performance.now() * 0.023 + i) * Math.sin(performance.now() * 0.041));
+    });
+  }
+  function update(dt) {
+    scale.value = renderer.domElement.height / (2 * Math.tan(camera.fov * Math.PI / 360));
+    if (paused) dt = 0;
+    step(glow, dt); step(flames, dt); step(smoke, dt);
+  }
+  function clear() { glow.list.length = 0; flames.list.length = 0; smoke.list.length = 0; lights.forEach((l) => { l.intensity = 0; }); }
+  return { burn, burst, light, update, clear };
+})();
 
 // Progress bars (knocking, inspecting, purging, the player's sun exposure) are HTML, so they stay sharp over the blur.
 const barLayer = document.getElementById('bars');
@@ -886,9 +1003,12 @@ function subjectWorld() {
   return new THREE.Vector3(p.x, W.groundY(p.x, p.z), p.z);
 }
 function snapCamera() { camTarget.copy(subjectWorld()); aimAt(); }
+// When the player is destroyed the camera lingers a moment on the spot, so the last burst of flame is seen, before
+// it follows them to the house they rise in.
 function followCamera(dt) {
   const s = mode === 'title' ? null : cameraSubject(), goal = subjectWorld(), gap = goal.clone().sub(camTarget), far = gap.length();
-  if (far > 1e-4) {
+  const lingering = deathNotice && performance.now() - deathNotice.at < 1600;
+  if (far > 1e-4 && !lingering) {
     const frames = Math.min(dt, 0.1) * 60;
     if (s === player) camTarget.addScaledVector(gap, 1 - Math.pow(1 - 0.12, frames));
     else { const stepPx = Math.min(5, Math.max(0.5, far / S * 0.04)) * frames; camTarget.addScaledVector(gap, Math.min(1, stepPx * S / far)); }
@@ -980,11 +1100,12 @@ let ready = false;
 function frame() {
   const dt = Math.min(timer.getDelta(), 0.1);
   if (!ready) return;
-  if (W.map !== mapVersion) buildWorld();
+  if (W.map !== mapVersion) { buildWorld(); fire.clear(); }
   adaptResolution(dt);
   setTimeOfDay(hourOfDay());
   syncBuildings(dt);
   syncCharacters(dt);
+  fire.update(dt);
   viewYaw = CAM.yaw;
   followCamera(dt);
   stars.position.set(camTarget.x, 0, camTarget.z);
