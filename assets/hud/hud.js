@@ -29,7 +29,8 @@
       document.querySelector('.hud-countdown').classList.toggle('is-warning', remaining > 0 && remaining <= (day ? 5 : dawnWarning));
       put('hudNight', `${day ? 'Day' : 'Night'} ${night}`);
       put('hudCountdown', `${day ? 'Dusk' : 'Dawn'} in ${Math.ceil(remaining)}s`);
-      pointer.style.setProperty('--progress', `${8 + ((hour + 6) % 24) / 24 * 84}%`);
+      const f = ((hour + 6) % 24) / 12;   // 0-1 over the night, 1-2 over the day
+      pointer.style.setProperty('--progress', `${(56 + f * 162) / 4.3}%`);   // x 56-380 of the 430-wide art (clock.svg)
       pointer.setAttribute('aria-label', `Day and night cycle, ${Math.floor(hour)}:${String(Math.floor(hour % 1 * 60)).padStart(2, '0')}`);
     },
     setContext: context,
