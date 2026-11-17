@@ -10,6 +10,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const S = 3 / 32;   // metres per simulation pixel
 const RH = RIVER_HALF * S, RDH = ROAD_HALF * S, BRH = BRIDGE_HALF * S, GROUND = 170;
@@ -142,6 +143,35 @@ const tileTex = (path, repeat, srgb = true) => { const t = texLoader.load(TEX + 
 function shadows(obj, cast = true, receive = true) { obj.traverse((o) => { if (o.isMesh) { o.castShadow = cast; o.receiveShadow = receive; } }); return obj; }
 function ownMaterials(obj) { obj.traverse((o) => { if (o.isMesh) o.material = o.material.clone(); }); return obj; }
 function eachMaterial(obj, fn) { obj.traverse((o) => { if (o.isMesh) fn(o.material); }); }
+// Repeated models (trees, bushes, bridge pieces) are drawn as instanced batches: one draw call per model part per
+// 40 m square of the map, rather than one per copy. The squares keep frustum culling working.
+function makeBatcher(root) {
+  const lists = new Map(), CELL = 40, m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  return {
+    add(template, position, rotY = 0, scale = 1) {
+      m.compose(position, q.setFromAxisAngle(up, rotY), new THREE.Vector3(scale, scale, scale));
+      const key = Math.floor(position.x / CELL) + ',' + Math.floor(position.z / CELL);
+      let byCell = lists.get(template); if (!byCell) lists.set(template, byCell = new Map());
+      let list = byCell.get(key); if (!list) byCell.set(key, list = []);
+      list.push(m.clone());
+    },
+    build() {
+      for (const [template, byCell] of lists) {
+        template.updateMatrixWorld(true);
+        const parts = []; template.traverse((o) => { if (o.isMesh) parts.push(o); });
+        for (const list of byCell.values()) for (const part of parts) {
+          const inst = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+          list.forEach((place, i) => inst.setMatrixAt(i, m.multiplyMatrices(place, part.matrixWorld)));
+          inst.castShadow = true; inst.receiveShadow = true;
+          inst.computeBoundingSphere();
+          root.add(inst);
+        }
+      }
+      lists.clear();
+    },
+  };
+}
+
 // Wrap a model so that it stands on y = 0, is centred in x and z, and has the given size in metres.
 function fit(model, size) {
   const box = new THREE.Box3().setFromObject(model), s = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
@@ -156,6 +186,24 @@ function fit(model, size) {
 }
 const hash2 = (ix, iz) => { let h = Math.imul(ix, 374761393) ^ Math.imul(iz, 668265263) ^ 0x5bd1e995; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 const vnoise = (x, z) => { const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, u = fx * fx * (3 - 2 * fx), w = fz * fz * (3 - 2 * fz); return (hash2(ix, iz) * (1 - u) + hash2(ix + 1, iz) * u) * (1 - w) + (hash2(ix, iz + 1) * (1 - u) + hash2(ix + 1, iz + 1) * u) * w; };
+
+// Smooth value noise baked into a texture: one lattice value per unit, smoothstep-interpolated, repeating every 128
+// units. The ground and road shaders read it in place of hashing four sin() values per lookup.
+const NOISE = (() => {
+  const N = 512, CELL = 4, P = N / CELL, lat = new Float32Array(P * P), data = new Uint8Array(N * N);
+  for (let i = 0; i < lat.length; i++) lat[i] = Math.random();
+  const L = (x, y) => lat[(y % P) * P + (x % P)], fade = (t) => t * t * (3 - 2 * t);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const gx = x / CELL, gy = y / CELL, ix = Math.floor(gx), iy = Math.floor(gy), u = fade(gx - ix), v = fade(gy - iy);
+    const a = L(ix, iy) + (L(ix + 1, iy) - L(ix, iy)) * u, b = L(ix, iy + 1) + (L(ix + 1, iy + 1) - L(ix, iy + 1)) * u;
+    data[y * N + x] = Math.round((a + (b - a) * v) * 255);
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RedFormat, THREE.UnsignedByteType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true; t.needsUpdate = true;
+  return t;
+})();
+const NOISE_GLSL = 'uniform sampler2D uNoise;\nfloat noiseTex(vec2 p) { return texture2D(uNoise, (p + 0.5) / 128.0).r; }';
 
 // Per-map values the shaders read: the river line (a point on it, then the cosine and sine of its angle, see riverFrame)
 // and the two road lines (a point, then the direction).
@@ -233,6 +281,7 @@ diffuseColor.a = mix(0.25, 0.75, wDeep);`).replace('#include <normal_fragment_ma
     m.transparent = true; m.depthWrite = false; m.side = THREE.FrontSide;
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uRoads = roadLines;
+      sh.uniforms.uNoise = { value: NOISE };
       sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
 varying vec3 vRoadPos;
 varying vec3 vRoadN;`).replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -242,8 +291,8 @@ vRoadN = normalize(mat3(modelMatrix) * objectNormal);`);
 varying vec3 vRoadPos;
 varying vec3 vRoadN;
 uniform vec4 uRoads[2];
-float rHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float rNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(rHash(i), rHash(i + vec2(1, 0)), f.x), mix(rHash(i + vec2(0, 1)), rHash(i + vec2(1, 1)), f.x), f.y); }
+${NOISE_GLSL}
+float rNoise(vec2 p) { return noiseTex(p); }
 vec2 rUv, rDx, rDy; float rI, rF;
 void rCells() {
   rUv = vRoadPos.xz / 3.2; rDx = dFdx(rUv); rDy = dFdy(rUv);
@@ -318,6 +367,7 @@ function groundMaterial(turf = 0) {
   const mat = new THREE.MeshStandardMaterial({ map: A.grassMap, normalMap: A.grassNormal, roughness: 1 });
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uTurfAll = { value: turf };
+    sh.uniforms.uNoise = { value: NOISE };
     sh.uniforms.uYardMap = { value: A.yardMap }; sh.uniforms.uRoads = roadLines; sh.uniforms.uRoadMap = { value: A.roadMap }; sh.uniforms.uRiver = riverU;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
 varying vec3 vWPos;`).replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -328,8 +378,8 @@ uniform sampler2D uYardMap;
 uniform float uTurfAll;
 uniform vec4 uRoads[2];
 uniform sampler2D uRoadMap;${RIVER_GLSL}
-float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), f.x), f.y); }`).replace('#include <map_fragment>', `
+${NOISE_GLSL}
+float gNoise(vec2 p) { return noiseTex(p); }`).replace('#include <map_fragment>', `
 vec2 gDx = dFdx(vMapUv), gDy = dFdy(vMapUv);
 float gL = gNoise(vWPos.xz * 0.45) * 8.0, gI = floor(gL), gF = fract(gL);
 vec3 gA = textureGrad(map, vMapUv + sin(vec2(3.0, 7.0) * gI), gDx, gDy).rgb;
@@ -377,8 +427,9 @@ const ORANGE = 0xff3800, RED = 0xff0000;
 const HOUSE_SCALE = 7, CRYPT_SCALE = 7, CHAR_SCALE = 1.3, MULCH = 0.25, HILL = 2, YARD_RISE = 1.3, MOUND = 1.25, CROWN = 0.45;
 
 function buildWorld() {
-  if (W) { scene.remove(W.root); W.root.traverse((o) => { if (o.isMesh && o.userData.own) { o.geometry.dispose(); } }); }
+  if (W) { scene.remove(W.root); W.root.traverse((o) => { if (o.isInstancedMesh) o.dispose(); else if (o.isMesh && o.userData.own) o.geometry.dispose(); }); }
   const root = new THREE.Group();
+  const batch = makeBatcher(root);
   const own = (mesh) => { mesh.userData.own = true; return mesh; };   // geometry made here, freed with the map
   scene.add(root);
 
@@ -507,7 +558,7 @@ function buildWorld() {
     const yaw = Math.atan2(road.dx, road.dz);
     const half = road.half, spans = Math.ceil((2 * half - 6) / 3), total = spans * 3 + 6;
     const at = (s, y = 0) => new THREE.Vector3(road.x + road.dx * s, y, road.z + road.dz * s);
-    const ends = [Infinity, -Infinity];
+    const ends = [Infinity, -Infinity], pieces = [];
     for (let s = -GROUND * 1.4; s < GROUND * 1.4; s += 3) {
       const mid = s + 1.5;
       if (Math.abs(mid) < total / 2 - 3) continue;   // the deck takes over here
@@ -551,14 +602,18 @@ function buildWorld() {
         }
         o.geometry.setAttribute('normal', nrm); o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox();
       });
-      shadows(r, false, true); r.traverse((o) => { o.renderOrder = 1; }); root.add(r);
+      r.traverse((o) => { if (o.isMesh) { pieces.push(o.geometry.applyMatrix4(o.matrixWorld)); } });
     }
+    // One mesh for the whole road, in world space, rather than a hundred modules to draw one by one.
+    const merged = own(new THREE.Mesh(mergeGeometries(pieces), A.roadMats[ri]));
+    pieces.forEach((g) => g.dispose());
+    merged.receiveShadow = true; merged.renderOrder = 1; root.add(merged);
     for (const [from, dir] of [[ends[0], -1], [ends[1], 1]]) {   // one stretched module carries the road on into the fog
       const r = A.road_straight.clone(); r.traverse((o) => { if (o.isMesh) o.material = A.roadMats[ri]; o.renderOrder = 1; }); r.position.copy(at(from + dir * 200, ri * 0.012)); r.rotation.y = yaw; r.scale.z *= 400 / 3;
       root.add(r);
     }
     for (let i = 0; i < spans; i++) {
-      const b = A.span.clone(); b.position.copy(at(-total / 2 + 3 + i * 3 + 1.5, deckY)); b.rotation.y = yaw; shadows(b); root.add(b);
+      batch.add(A.span, at(-total / 2 + 3 + i * 3 + 1.5, deckY), yaw);
       const j = at(-total / 2 + 3 + i * 3, 0), overWater = riverDist(j.x, j.z) < RH - 1.5;
       if (i > 0 && i % 2 === 0 && overWater || (spans <= 4 && i === Math.floor(spans / 2))) {
         const p = A.pier.clone(); const box = new THREE.Box3().setFromObject(p);
@@ -669,12 +724,13 @@ totalEmissiveRadiance += uChurchWin * texture2D(uChurchMask, vMapUv).r;
   // A flowering bush within 10 m of a home wilts with that home's curse (see syncBuildings), so each has its own
   // materials.
   const flowerBush = (x, z) => {
-    const p = A.flowerBushes[Math.floor(Math.random() * A.flowerBushes.length)].clone();
-    p.position.set(x, heightAt(x, z) - 0.05, z); p.rotation.y = Math.random() * Math.PI * 2; p.scale.multiplyScalar(0.75 + Math.random() * 0.4);
-    shadows(p); root.add(p);
+    const kind = A.flowerBushes[Math.floor(Math.random() * A.flowerBushes.length)];
+    const y = heightAt(x, z) - 0.05, rot = Math.random() * Math.PI * 2, size = 0.75 + Math.random() * 0.4;
     let near = null, best = 10;
     for (const { h, x: hx, z: hz } of homes) { const d = Math.hypot(x - hx, z - hz); if (d < best) { best = d; near = h; } }
-    if (!near) return;
+    if (!near) { batch.add(kind, new THREE.Vector3(x, y, z), rot, size); return; }
+    const p = kind.clone(); p.position.set(x, y, z); p.rotation.y = rot; p.scale.multiplyScalar(size);
+    shadows(p); root.add(p);
     const bush = { mats: [], scale: p.scale.y, obj: p };
     p.traverse((o) => {
       if (!o.isMesh) return;
@@ -718,9 +774,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.
     const k = inTown ? 2 : Math.random() < 0.38 ? 0 : Math.random() < 0.6 ? 1 : 2;
     if (inTown && Math.random() > 0.03) continue;
     if (!free(x, z, A.plants[k][1])) continue;
-    const p = A.plants[k][0].clone(); p.position.set(x, heightAt(x, z) - 0.06, z); p.rotation.y = Math.random() * Math.PI * 2; p.scale.multiplyScalar(0.8 + Math.random() * 0.45); shadows(p); root.add(p);
+    batch.add(A.plants[k][0], new THREE.Vector3(x, heightAt(x, z) - 0.06, z), Math.random() * Math.PI * 2, 0.8 + Math.random() * 0.45);
     taken.push([x, z, A.plants[k][1]]); placed++;
   }
+
+  batch.build();
 
   // Where a walker's feet go: on a bridge deck, on a road, on the graveyard bed, or on the ground.
   const onBridge = (x, z) => riverDist(x, z) < RH + 3 && roadDist(x, z) < BRH - 0.9;
@@ -1081,20 +1139,45 @@ function followCamera(dt) {
 
 // ---------- effects: tilt-shift, saturation and vignette, then the stars ----------
 
+// Tilt-shift: two separable Gaussian passes, blurring more with distance from the band in focus. The first pass also
+// smooths jagged edges (FXAA) where the picture stays sharp, which costs far less than multisampling the scene; the
+// blur smooths every other edge anyway. The second pass adds the saturation lift and vignette.
 const TiltShift = {
-  uniforms: { tDiffuse: { value: null }, uDir: { value: new THREE.Vector2(1, 0) }, uFocus: { value: 0.5 }, uRadius: { value: 0.007 }, uGrade: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uDir: { value: new THREE.Vector2(1, 0) }, uFocus: { value: 0.5 }, uRadius: { value: 0.007 },
+    uGrade: { value: 0 }, uFxaa: { value: 0 }, uPx: { value: new THREE.Vector2(1 / 1280, 1 / 720) } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform vec2 uDir; uniform float uFocus, uRadius, uGrade; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform vec2 uDir, uPx; uniform float uFocus, uRadius, uGrade, uFxaa; varying vec2 vUv;
+    // luma of a linear HDR colour, compressed so that edge contrast is judged as the eye sees it
+    float luma(vec3 c) { float l = dot(c, vec3(0.299, 0.587, 0.114)); return l / (1.0 + l); }
+    vec4 fxaa(vec2 uv) {
+      vec4 m = texture2D(tDiffuse, uv);
+      float lNW = luma(texture2D(tDiffuse, uv + vec2(-1.0, -1.0) * uPx).rgb), lNE = luma(texture2D(tDiffuse, uv + vec2(1.0, -1.0) * uPx).rgb);
+      float lSW = luma(texture2D(tDiffuse, uv + vec2(-1.0, 1.0) * uPx).rgb), lSE = luma(texture2D(tDiffuse, uv + vec2(1.0, 1.0) * uPx).rgb);
+      float lM = luma(m.rgb);
+      float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE))), lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+      if (lMax - lMin < max(0.03, lMax * 0.12)) return m;   // no edge here
+      vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+      float reduce = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0 / 128.0);
+      dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), -8.0, 8.0) * uPx;
+      vec4 a = 0.5 * (texture2D(tDiffuse, uv - dir / 6.0) + texture2D(tDiffuse, uv + dir / 6.0));
+      vec4 b = 0.5 * a + 0.25 * (texture2D(tDiffuse, uv - dir * 0.5) + texture2D(tDiffuse, uv + dir * 0.5));
+      float lB = luma(b.rgb);
+      return (lB < lMin || lB > lMax) ? a : b;
+    }
     void main() {
-      float amt = smoothstep(0.13, 0.42, abs(vUv.y - uFocus));
-      vec2 stepUv = uDir * uRadius * amt / 10.0;
-      vec4 c = texture2D(tDiffuse, vUv); float wSum = 1.0;
-      for (int k = 1; k <= 10; k++) {
-        float f = float(k), w = exp(-f * f / 40.5);
-        c += (texture2D(tDiffuse, vUv + stepUv * f) + texture2D(tDiffuse, vUv - stepUv * f)) * w; wSum += 2.0 * w;
+      float amt = smoothstep(0.13, 0.42, abs(vUv.y - uFocus)) * step(0.0001, uRadius);
+      vec4 c;
+      if (amt < 0.001) c = uFxaa > 0.5 ? fxaa(vUv) : texture2D(tDiffuse, vUv);   // in focus: no blur to do
+      else {
+        vec2 stepUv = uDir * uRadius * amt / 10.0;
+        c = texture2D(tDiffuse, vUv); float wSum = 1.0;
+        for (int k = 1; k <= 10; k++) {
+          float f = float(k), w = exp(-f * f / 40.5);
+          c += (texture2D(tDiffuse, vUv + stepUv * f) + texture2D(tDiffuse, vUv - stepUv * f)) * w; wSum += 2.0 * w;
+        }
+        c /= wSum;
       }
-      c /= wSum;
       if (uGrade > 0.5) {
         float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
         c.rgb = max(vec3(0.0), mix(vec3(l), c.rgb, 1.15));
@@ -1103,7 +1186,7 @@ const TiltShift = {
       gl_FragColor = c;
     }`,
 };
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType }));
 composer.addPass(new RenderPass(scene, camera));
 const blurH = new ShaderPass(TiltShift), blurV = new ShaderPass(TiltShift);
 blurV.uniforms.uGrade.value = 1;
@@ -1112,7 +1195,7 @@ const starPass = new RenderPass(skyScene, camera);
 starPass.clear = false;
 composer.addPass(blurH); composer.addPass(blurV); composer.addPass(starPass); composer.addPass(new OutputPass());
 composer.setPixelRatio(renderScale); composer.setSize(innerWidth, innerHeight);
-const BRIGHTNESS = 1.75, BLUR = 3;
+const BRIGHTNESS = 1.75, BLUR = 3, bufferSize = new THREE.Vector2();
 let blur = 1;   // eases the tilt-shift down while a doorstep talk is open
 function drawFrame() {
   renderer.toneMappingExposure = baseExposure * BRIGHTNESS;
@@ -1121,20 +1204,56 @@ function drawFrame() {
   blurH.uniforms.uFocus.value = blurV.uniforms.uFocus.value = focus;
   blurH.uniforms.uDir.value.set(innerHeight / innerWidth, 0); blurV.uniforms.uDir.value.set(0, 1);
   blur += ((talk ? 0.35 : 1) - blur) * 0.08;
-  blurH.uniforms.uRadius.value = blurV.uniforms.uRadius.value = 0.007 * BLUR * blur;
+  // with the blur and grading off, the first pass stays on to smooth edges, with no blur
+  blurH.uniforms.uRadius.value = blurV.uniforms.uRadius.value = quality.blur ? 0.007 * BLUR * blur : 0;
+  renderer.getDrawingBufferSize(bufferSize); blurH.uniforms.uPx.value.set(1 / bufferSize.x, 1 / bufferSize.y);
+  const timing = gpuTimer && quality.resolution === 'auto' && gpuTimer.begin();
   renderer.autoClear = false; composer.render(); renderer.autoClear = true;
+  if (timing) gpuTimer.end();
+  if (gpuTimer) gpuTimer.poll();
 }
-let slowAcc = 0, slowN = 0, calmWindows = 0;
-const setScale = (k) => { renderScale = k; renderer.setPixelRatio(k); composer.setPixelRatio(k); composer.setSize(innerWidth, innerHeight); calmWindows = 0; };
-// With the resolution setting on automatic, the render scale drops when frames run slow and creeps back up when they
-// have headroom.
+// Automatic resolution. Where the browser can time the GPU, the render scale steps toward a frame's GPU work sitting
+// near GPU_TARGET (headroom under a 60 Hz frame), with a dead band so it settles rather than hunting; elsewhere it
+// falls back on frame intervals. It moves one 5% step at a time, at most every few seconds, since each change
+// reallocates the render targets.
+const GPU_TARGET = 14.5, SCALE_MIN = 0.6, STEP = 0.05;
+const gpuTimer = (() => {
+  const gl = renderer.getContext(), ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+  if (!ext) return null;
+  const queries = [], samples = [];
+  return {
+    begin() { if (queries.length > 4) return false; const q = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, q); queries.push(q); return true; },
+    end() { gl.endQuery(ext.TIME_ELAPSED_EXT); },
+    poll() {
+      while (queries.length && gl.getQueryParameter(queries[0], gl.QUERY_RESULT_AVAILABLE)) {
+        const q = queries.shift();
+        if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) samples.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
+        gl.deleteQuery(q);
+      }
+    },
+    take() { if (samples.length < 30) return null; const v = samples.splice(0).sort((x, y) => x - y); return v[Math.floor(v.length * 0.75)]; },
+  };
+})();
+let slowAcc = 0, slowN = 0, lastChange = 0;
+const setScale = (k) => { renderScale = k; renderer.setPixelRatio(k); composer.setPixelRatio(k); composer.setSize(innerWidth, innerHeight); lastChange = performance.now(); };
 function adaptResolution(dt) {
   if (quality.resolution !== 'auto' || document.hidden || dt > 0.5) return;
-  slowAcc += dt;
-  if (++slowN < 40) return;
-  const avg = slowAcc / slowN; slowAcc = 0; slowN = 0;
-  if (avg > 1 / 48 && renderScale > 0.6) setScale(Math.max(0.6, renderScale * 0.85));
-  else if (avg < 1 / 57 && renderScale < MAX_SCALE && ++calmWindows >= 6) setScale(Math.min(MAX_SCALE, renderScale * 1.1));
+  if (performance.now() - lastChange < 3000) { if (gpuTimer) gpuTimer.take(); return; }
+  let want = renderScale;
+  if (gpuTimer) {
+    const gpu = gpuTimer.take();   // the 75th percentile of recent frames, so one-off spikes do not count
+    if (gpu === null) return;
+    if (gpu > GPU_TARGET * 1.06) want = renderScale - STEP;
+    else if (gpu < GPU_TARGET * 0.8) want = renderScale + STEP;
+    else return;
+  } else {
+    slowAcc += dt;
+    if (++slowN < 60) return;
+    const avg = slowAcc / slowN; slowAcc = 0; slowN = 0;
+    if (avg > 1 / 50) want = renderScale - STEP; else if (avg < 1 / 58) want = renderScale + STEP; else return;
+  }
+  want = Math.min(MAX_SCALE, Math.max(SCALE_MIN, Math.round(want * 20) / 20));
+  if (want !== renderScale) setScale(want);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; frameCamera(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
 
@@ -1150,9 +1269,9 @@ function configure(s) {
   }
   sun.castShadow = on;
   if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
-  blurH.enabled = blurV.enabled = quality.blur;
-  const samples = quality.aa ? 4 : 0;
-  for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
+  blurV.enabled = quality.blur;
+  blurH.enabled = quality.blur || quality.aa;
+  blurH.uniforms.uFxaa.value = quality.aa ? 1 : 0;
   if (quality.resolution !== 'auto') setScale(MAX_SCALE * +quality.resolution);
   else if (was.resolution !== 'auto') setScale(Math.min(MAX_SCALE, 1));
 }
@@ -1188,7 +1307,9 @@ function project(px, py, up = 0) {
   projected.set(p.x, W.groundY(p.x, p.z) + up, p.z).project(camera);
   return { x: projected.x * 0.5 + 0.5, y: -projected.y * 0.5 + 0.5 };
 }
-window.render3d = { frame, configure, project, get ready() { return ready; }, get world() { return W; }, get view() { return CAM; } };
+window.render3d = { frame, configure, project, get ready() { return ready; }, get world() { return W; }, get view() { return CAM; },
+  // for profiling from the console
+  debug: { renderer, scene, skyScene, composer, camera, sun, setScale, drawFrame, syncCharacters, syncBuildings, fire, get renderScale() { return renderScale; } } };
 
 const loading = document.getElementById('loading'), loadFill = document.getElementById('loadFill'), loadText = document.getElementById('loadText');
 let filesIdle = false;
