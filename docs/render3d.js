@@ -1358,5 +1358,5 @@ loadAssets().then(async () => {
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   ready = true;
   loading.classList.add('done'); setTimeout(() => loading.remove(), 700);
-  document.title = 'ready: ' + document.title;
+  document.title = 'Graveyard Shifts: A Vampire Simulator';
 }).catch((e) => { loadText.textContent = 'Failed to load: ' + (e.message || e); console.error(e); });

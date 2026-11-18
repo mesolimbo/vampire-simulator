@@ -3,10 +3,11 @@ PYTHON := python
 SERVER := $(PYTHON) scripts/devserver.py
 
 .DEFAULT_GOAL := help
-.PHONY: help build start stop restart status clean
+.PHONY: help build zip start stop restart status clean
 
 help:
 	@echo make build    - check that the game script parses
+	@echo make zip      - build, then zip the game for itch.io into dist/graveyard-shifts.zip
 	@echo make start    - build, then serve the game at http://127.0.0.1:$(PORT)/
 	@echo make stop     - stop the server
 	@echo make restart  - stop, then start
@@ -15,6 +16,9 @@ help:
 
 build:
 	@$(SERVER) build $(PORT)
+
+zip:
+	@$(SERVER) zip $(PORT)
 
 start: build
 	@$(SERVER) start $(PORT)

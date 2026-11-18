@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,6 +17,12 @@ BUILD = ROOT / ".build"
 PID_FILE = BUILD / "server.pid"
 LOG_FILE = BUILD / "server.log"
 HOST = "127.0.0.1"
+DIST = ROOT / "dist"
+ZIP_NAME = "graveyard-shifts.zip"
+# Site files the game never loads: the 3D asset preview, the GitHub Pages marker and the music's generation notes.
+ZIP_SKIP = {"scene3d.html", ".nojekyll", "assets/audio/music/bgm_loop.json"}
+# itch.io's limits for an HTML game, unpacked.
+ITCH_MAX_FILES, ITCH_MAX_BYTES, ITCH_MAX_FILE_BYTES = 1000, 500 * 1024 * 1024, 200 * 1024 * 1024
 
 
 def listening(port):
@@ -40,6 +47,24 @@ def build():
     if subprocess.run([node, "--check", str(module)]).returncode != 0:
         sys.exit("build failed: syntax error in render3d.js")
     print("build: every script parses")
+
+
+def package():
+    """Zip the site for an itch.io HTML upload: index.html at the top of the archive, everything it loads beside it."""
+    build()
+    files = sorted(p for p in SITE.rglob("*") if p.is_file() and p.relative_to(SITE).as_posix() not in ZIP_SKIP)
+    total = sum(p.stat().st_size for p in files)
+    too_big = [p.relative_to(SITE).as_posix() for p in files if p.stat().st_size > ITCH_MAX_FILE_BYTES]
+    if len(files) > ITCH_MAX_FILES or total > ITCH_MAX_BYTES or too_big:
+        sys.exit(f"zip: over itch.io's limits ({len(files)} files, {total / 1e6:.0f} MB, too large: {too_big or 'none'})")
+    DIST.mkdir(exist_ok=True)
+    out = DIST / ZIP_NAME
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for p in files:
+            # Already-compressed media gains nothing from deflate.
+            kind = zipfile.ZIP_STORED if p.suffix.lower() in {".mp3", ".jpg", ".png", ".glb", ".webp"} else zipfile.ZIP_DEFLATED
+            z.write(p, p.relative_to(SITE).as_posix(), compress_type=kind)
+    print(f"zip: {out.relative_to(ROOT)}, {len(files)} files, {total / 1e6:.0f} MB unpacked, {out.stat().st_size / 1e6:.0f} MB zipped")
 
 
 def start(port):
@@ -98,4 +123,4 @@ def status(port):
 
 if __name__ == "__main__":
     command, port = sys.argv[1], int(sys.argv[2])
-    {"build": lambda p: build(), "start": start, "stop": stop, "status": status, "serve": serve}[command](port)
+    {"build": lambda p: build(), "zip": lambda p: package(), "start": start, "stop": stop, "status": status, "serve": serve}[command](port)
