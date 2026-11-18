@@ -9,7 +9,7 @@ args = sys.argv[sys.argv.index('--') + 1:]
 REPO, OUT = args[0], args[1]
 SAMPLES = int(args[2]) if len(args) > 2 else 64
 WIDTH = int(args[3]) if len(args) > 3 else 1920
-M, T = REPO + '/assets/models/', REPO + '/assets/textures/'
+M, T = REPO + '/docs/assets/models/', REPO + '/docs/assets/textures/'
 random.seed(11)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)

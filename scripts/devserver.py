@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+SITE = ROOT / "docs"   # the published site: GitHub Pages serves this folder
 BUILD = ROOT / ".build"
 PID_FILE = BUILD / "server.pid"
 LOG_FILE = BUILD / "server.log"
@@ -31,11 +32,11 @@ def build():
         return
     BUILD.mkdir(exist_ok=True)
     for name in ["sim.js", "render2d.js", "ui.js", "audio.js", "menu.js", "main.js", "assets/hud/hud.js"]:
-        if subprocess.run([node, "--check", str(ROOT / name)]).returncode != 0:
+        if subprocess.run([node, "--check", str(SITE / name)]).returncode != 0:
             sys.exit(f"build failed: syntax error in {name}")
     # The 3D renderer is an ES module; node checks it as one only under the .mjs extension.
     module = BUILD / "render3d.mjs"
-    module.write_text((ROOT / "render3d.js").read_text(encoding="utf-8"), encoding="utf-8")
+    module.write_text((SITE / "render3d.js").read_text(encoding="utf-8"), encoding="utf-8")
     if subprocess.run([node, "--check", str(module)]).returncode != 0:
         sys.exit("build failed: syntax error in render3d.js")
     print("build: every script parses")
@@ -75,7 +76,7 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def serve(port):
-    handler = functools.partial(NoCacheHandler, directory=str(ROOT))
+    handler = functools.partial(NoCacheHandler, directory=str(SITE))
     http.server.ThreadingHTTPServer((HOST, port), handler).serve_forever()
 
 

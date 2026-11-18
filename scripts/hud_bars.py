@@ -1,11 +1,11 @@
-# Cut the HUD's top bar and footer frame pieces out of the concept art (assets/hud/concept-atlas.png), so every line
+# Cut the HUD's top bar and footer frame pieces out of the concept art (docs/assets/hud/concept-atlas.png), so every line
 # and colour of the bars comes from the one painting: each bar's left end, its right end, and a plain column of its
 # frame that the CSS stretches along the middle. Painted widgets that sit inside an end piece are covered with that
 # bar's plain frame.
 #   python scripts/hud_bars.py
 from PIL import Image
 
-SRC, OUT = 'assets/hud/concept-atlas.png', 'assets/hud/'
+SRC, OUT = 'docs/assets/hud/concept-atlas.png', 'docs/assets/hud/'
 atlas = Image.open(SRC).convert('RGBA')
 
 BARS = {
