@@ -39,7 +39,7 @@ Each game builds a new map. The console prints its seed, and adding `?seed=<numb
 
 ## Running it locally
 
-The game is plain HTML and JavaScript with no build step. Three.js loads from a CDN. You need Python 3 to serve it, and Node.js for the syntax check.
+The game is plain HTML and JS with no build step. Three.js loads from a CDN. You need Python 3 to serve it, and Node.js for the syntax check.
 
 ```sh
 make start    # check the scripts, then serve the game at http://127.0.0.1:8765/
